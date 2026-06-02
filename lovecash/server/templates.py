@@ -63,6 +63,10 @@ OVERLAY_HTML = """<!DOCTYPE html>
       statusEl.className = "down"; setTimeout(connect, 2000); };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
+      if (msg.type === "address") {
+        document.querySelector("#qr-card img").src =
+            "/qr.png?ts=" + Date.now();   // cache-bust; re-fetches current address
+      }
       if (msg.type === "status") {
         const live = msg.data.connection === "connected";
         statusEl.textContent = live ? "live" : "tips paused — reconnecting";
