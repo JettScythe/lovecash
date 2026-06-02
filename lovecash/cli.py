@@ -214,9 +214,10 @@ def serve(
     settings = Settings.from_yaml(config)
     host, port = settings.server.bind_host, settings.server.bind_port
     app_instance = create_app(settings)  # raises early if misconfigured
+    display_host = "localhost" if host == "0.0.0.0" else host
     console.print(
         Panel.fit(
-            f"OBS Browser Source URL:\n[bold cyan]http://{host}:{port}/overlay[/]",
+            f"OBS Browser Source URL:\n[bold cyan]http://{display_host}:{port}/overlay[/]",
             title="Add this to OBS",
             style="green",
         )

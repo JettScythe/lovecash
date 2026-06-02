@@ -42,3 +42,9 @@ async def test_observer_error_does_not_break_core(orch_and_ctrl):
     orch.add_observer(bad_observer)
     await orch._handle_event(_pay(5000))
     assert len(ctrl.commands) == 1  # toy still fired despite the crash
+
+
+def test_orchestrator_adopts_router_safety(orch_and_ctrl):
+    """Panic stop must act on the same SafetyState the toys check."""
+    orch, _ = orch_and_ctrl
+    assert orch.safety is orch.router.safety

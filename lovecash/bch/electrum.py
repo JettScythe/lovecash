@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import ssl
@@ -10,7 +11,9 @@ log = logging.getLogger("lovecash.electrum")
 class ElectrumClient:
     """Tiny async JSON-RPC client for the Electrum/Fulcrum protocol."""
 
-    def __init__(self, host: str, port: int, use_ssl: bool = True) -> None:
+    def __init__(
+        self, host: str, port: int, use_ssl: bool = True, heartbeat_s=30.0
+    ) -> None:
         self._host = host
         self._port = port
         self._ssl = use_ssl
@@ -20,37 +23,92 @@ class ElectrumClient:
         self._pending: dict[int, asyncio.Future] = {}
         self._notifications: asyncio.Queue = asyncio.Queue()
         self._reader_task: asyncio.Task | None = None
+        self.disconnected = asyncio.Event()
+        self._heartbeat_s = heartbeat_s
+        self._hb_task: asyncio.Task | None = None
 
     async def connect(self) -> None:
+        # Guard against starting a second reader on a stale connection.
+        if self._reader_task and not self._reader_task.done():
+            await self.close()
         ctx = None
         if self._ssl:
             ctx = ssl.create_default_context()
-            # Many community Fulcrum servers use self-signed certs.
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, ssl=ctx
         )
+        self.disconnected.clear()
+        self._closing = False
         self._reader_task = asyncio.create_task(self._read_loop())
-        log.info("Connected to Electrum %s:%s", self._host, self._port)
+        self._hb_task = asyncio.create_task(self._heartbeat())
+        log.info(
+            "Connected to Electrum %s:%s (ssl=%s)", self._host, self._port, self._ssl
+        )
+
+    def _dispatch(self, msg: dict) -> None:
+        """Route one decoded message: RPC response or subscription notice."""
+        msg_id = msg.get("id")
+        if msg_id is not None and msg_id in self._pending:
+            fut = self._pending.pop(msg_id)
+            if fut.done():
+                return
+            err = msg.get("error")
+            if err:
+                fut.set_exception(RuntimeError(str(err)))
+            else:
+                fut.set_result(msg.get("result"))
+        elif msg.get("method", "").endswith("subscribe"):
+            self._notifications.put_nowait(msg)
+
+    def _fail(self, reason: str) -> None:
+        if self.disconnected.is_set():
+            return
+        if not self._closing:  # quiet on intentional close
+            log.warning("Electrum connection lost: %s", reason)
+        self.disconnected.set()
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(ConnectionError(reason))
+        self._pending.clear()
 
     async def _read_loop(self) -> None:
-        assert self._reader is not None
-        while not self._reader.at_eof():
-            line = await self._reader.readline()
-            if not line:
-                break
-            msg = json.loads(line.decode())
-            if "id" in msg and msg["id"] in self._pending:
-                fut = self._pending.pop(msg["id"])
-                if "error" in msg and msg["error"]:
-                    fut.set_exception(RuntimeError(str(msg["error"])))
-                else:
-                    fut.set_result(msg.get("result"))
-            elif msg.get("method", "").endswith("subscribe"):
-                await self._notifications.put(msg)
+        reason = "server closed connection"
+        try:
+            while True:
+                line = await self._reader.readline()
+                if not line:  # EOF
+                    break
+                try:
+                    msg = json.loads(line.decode())
+                except json.JSONDecodeError:
+                    continue  # ignore garbage lines
+                self._dispatch(msg)
+        except asyncio.CancelledError:
+            raise  # intentional close
+        except (ConnectionError, OSError) as exc:
+            reason = f"read error: {exc}"
+        finally:
+            self._fail(reason)
 
-    async def call(self, method: str, *params) -> object:
+    async def _heartbeat(self) -> None:
+        try:
+            while not self.disconnected.is_set():
+                await asyncio.sleep(self._heartbeat_s)
+                try:
+                    await self.call("server.ping", timeout=10)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._fail(f"heartbeat failed: {exc!r}")
+                    return
+        except asyncio.CancelledError:
+            raise
+
+    async def call(self, method: str, *params, timeout: float = 30) -> object:  # noqa: ASYNC109
+        if self.disconnected.is_set():
+            raise ConnectionError("not connected")
         assert self._writer is not None
         self._id += 1
         req_id = self._id
@@ -59,17 +117,43 @@ class ElectrumClient:
         payload = json.dumps({"id": req_id, "method": method, "params": list(params)})
         self._writer.write(payload.encode() + b"\n")
         await self._writer.drain()
-        return await asyncio.wait_for(fut, timeout=30)
+        return await asyncio.wait_for(fut, timeout=timeout)
 
     async def subscribe_scripthash(self, scripthash: str) -> object:
         return await self.call("blockchain.scripthash.subscribe", scripthash)
+
+    async def next_notification(self) -> dict:
+        """Return the next notification, or raise if the connection drops."""
+        getter = asyncio.ensure_future(self._notifications.get())
+        dropped = asyncio.ensure_future(self.disconnected.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {getter, dropped}, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for t in (getter, dropped):
+                if not t.done():
+                    t.cancel()
+        if getter in done:
+            return getter.result()
+        raise ConnectionError("connection dropped while waiting")
 
     async def notifications(self) -> AsyncIterator[dict]:
         while True:
             yield await self._notifications.get()
 
     async def close(self) -> None:
-        if self._reader_task:
-            self._reader_task.cancel()
+        self._closing = True
+        self._fail("closed")
+        for task in (self._reader_task, self._hb_task):
+            if task and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task  # AWAIT — fixes the leak
+        self._reader_task = None
+        self._hb_task = None
         if self._writer:
             self._writer.close()
+            with contextlib.suppress(Exception):
+                await self._writer.wait_closed()
+            self._writer = None

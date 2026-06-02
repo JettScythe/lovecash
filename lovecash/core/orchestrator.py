@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -10,6 +11,7 @@ from lovecash.safety import SafetyState
 from lovecash.triggers.base import TriggerSource
 from lovecash.triggers.events import TriggerEvent
 from lovecash.triggers.payment import PaymentSource
+from lovecash.triggers.status import ConnectionState
 
 log = logging.getLogger("lovecash.core")
 
@@ -29,7 +31,20 @@ class Orchestrator:
         self.sources: list[TriggerSource] = []
         self._observers: list[TriggerObserver] = []
         self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
-        self.add_source(PaymentSource(settings.bch))
+        self._status_observers: list = []
+        self.connection_state = ConnectionState.CONNECTED
+        self.add_source(PaymentSource(settings.bch, on_status=self._broadcast_status))
+
+    def add_status_observer(self, obs) -> None:
+        self._status_observers.append(obs)
+
+    async def _broadcast_status(self, state) -> None:
+        self.connection_state = state
+        for obs in self._status_observers:
+            try:
+                await obs(state)
+            except Exception as exc:
+                log.error("Status observer error: %s", exc)
 
     def add_source(self, source: TriggerSource) -> None:
         self.sources.append(source)
@@ -62,8 +77,12 @@ class Orchestrator:
         tasks = [asyncio.create_task(s.run(self._emit)) for s in self.sources]
         try:
             await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            pass
         finally:
             consumer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consumer
             await self.shutdown()
 
     async def shutdown(self) -> None:

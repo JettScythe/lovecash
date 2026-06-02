@@ -30,7 +30,12 @@ def create_app(settings: Settings) -> FastAPI:
 
     hub = RelayHub()
     orchestrator = Orchestrator(settings)
-    orchestrator.add_observer(hub.broadcast_tip)
+    orchestrator.add_observer(hub.broadcast_event)
+
+    async def _on_status(state) -> None:
+        await hub.broadcast({"type": "status", "data": {"connection": state}})
+
+    orchestrator.add_status_observer(_on_status)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -48,7 +53,11 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict:
-        return {"ok": True, "stopped": orchestrator.safety.stopped}
+        return {
+            "ok": True,
+            "stopped": orchestrator.safety.stopped,
+            "connection": orchestrator.connection_state,
+        }
 
     # --- OBS-facing endpoints (no auth: read-only, no funds touched) ---
 

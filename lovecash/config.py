@@ -46,15 +46,30 @@ class LovenseConfig(BaseModel):
     toy_id: str | None = None
 
 
+class ElectrumServer(BaseModel):
+    host: str
+    port: int = 50002
+    ssl: bool = True
+
+
 class BchConfig(BaseModel):
-    # The performer's own receiving address. Never a key, never custody.
     address: str
-    # A public Fulcrum/ElectrumX server, or the performer's own.
     electrum_host: str = "fulcrum.fountainhead.cash"
     electrum_port: int = 50002
     electrum_ssl: bool = True
-    # Fire on 0-conf below this sats threshold; require 1+ conf above it.
+    servers: list[ElectrumServer] = []  # optional failover pool
     zeroconf_max_sats: int = 100_000
+    heartbeat_seconds: float = 15.0
+    reconnect_min_seconds: float = 1.0
+    reconnect_max_seconds: float = 60.0
+
+    def server_pool(self) -> list[ElectrumServer]:
+        primary = ElectrumServer(
+            host=self.electrum_host,
+            port=self.electrum_port,
+            ssl=self.electrum_ssl,
+        )
+        return [primary, *self.servers]
 
 
 class ServerConfig(BaseModel):

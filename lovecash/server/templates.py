@@ -63,6 +63,11 @@ OVERLAY_HTML = """<!DOCTYPE html>
       statusEl.className = "down"; setTimeout(connect, 2000); };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
+      if (msg.type === "status") {
+        const live = msg.data.connection === "connected";
+        statusEl.textContent = live ? "live" : "tips paused — reconnecting";
+        statusEl.className = live ? "ok" : "down";
+      }
       if (msg.type === "tip") showTip(msg.data);
     };
   }
