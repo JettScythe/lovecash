@@ -1,3 +1,9 @@
+## v0.4.0 (2026-06-02)
+
+### Feat
+
+- **bch**: xpub watch-only mode with rotating per-tip addresses
+
 ## v0.3.0 (2026-06-02)
 
 ### Feat
