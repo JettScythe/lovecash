@@ -1,0 +1,40 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key        # guards against committing keys
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.29.1
+    hooks:
+      - id: commitizen        # validates commit message format
+        stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: compileall
+        name: compileall (catch paste/syntax damage)
+        entry: uv run python -m compileall lovecash tests
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: pytest
+        name: pytest (hermetic suite)
+        entry: uv run --extra server pytest -q
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]

@@ -1,0 +1,136 @@
+# Performer Guide
+
+This guide gets you from zero to a working tip-controlled toy on your
+stream. No coding required. Budget about 20 minutes the first time.
+
+## What you'll have when you're done
+
+- Viewers tip you in Bitcoin Cash by scanning a QR code on your stream.
+- Tips go straight to your wallet. lovecash never holds your money.
+- Each tip triggers your toy based on rules you choose.
+- A panic stop you control at all times.
+
+## Before you start: what you need
+
+1. A computer (Mac, Windows, or Linux) to run lovecash and OBS.
+2. The Lovense Connect app (the one that connects your toy to a
+   computer — not Lovense Remote).
+3. Your Lovense toy.
+4. A Bitcoin Cash wallet you control, such as Electron Cash. You only
+   ever give lovecash your receiving address, never your password,
+   seed phrase, or private keys.
+5. OBS, if you want the on-screen tip QR and alerts.
+
+## Step 1: Install lovecash
+
+Install [uv](https://docs.astral.sh/uv/) (a small tool that runs the
+software), then in a terminal, from the lovecash folder:
+
+```bash
+uv sync --extra server
+```
+
+This downloads everything lovecash needs. You only do this once.
+
+## Step 2: Connect your toy
+
+1. Open the Lovense Connect app on your phone or desktop.
+2. Turn on your toy and let the app connect to it.
+3. Enable the computer connection:
+    - Desktop app: turn on Game Mode (look for a game-controller icon).
+    - Phone app: find the "connect to PC" screen, which shows an IP
+     address and port.
+4. Note the address and port shown. On desktop it's usually
+`127.0.0.1` and port`30010`.
+
+## Step 3: Run the setup wizard
+
+In the terminal:
+
+```bash
+uv run lovecash init
+```
+
+It asks a few simple questions:
+
+- Your Bitcoin Cash receiving address. This is the only place your
+  money goes. Copy it from your wallet's "Receive" screen.
+- Your maximum toy strength (0 to 20). Start low, like 6.
+- Maximum duration per tip in seconds. Start with 10.
+- Whether to enable the on-screen overlay (say yes for OBS).
+
+This creates a file called`config.yaml` with your settings. You can
+edit it later (see the [Tip Rules Guide](tip-rules.md)).
+
+## Step 4: Check everything is connected
+
+```bash
+uv run lovecash doctor
+```
+
+You want three green checks:
+
+- BCH address: valid
+- Electrum server: reachable
+- Lovense Connect: responding
+
+If the Lovense check is yellow, your toy app isn't sharing the
+connection yet. See [Troubleshooting](troubleshooting.md).
+
+## Step 5: Test it safely BEFORE going live
+
+This is important. Do this with the toy off your body the first time.
+
+1. Set a low strength cap in`config.yaml` (`max_strength: 3`).
+2. Run:
+
+```bash
+uv run lovecash run -v
+```
+
+3. Send yourself a tiny test tip from another wallet (a few cents).
+4. Watch the toy react and the terminal show "Tip received".
+5. Press Ctrl-C and confirm the toy stops immediately. This is your
+   panic stop. Never trust the system until you've seen this work.
+
+See the [Safety Guide](safety.md) for the full safe-testing routine.
+
+## Step 6: Add the overlay to OBS
+
+```bash
+uv run lovecash serve
+```
+
+It prints a web address. Then in OBS:
+
+1. Sources -> add -> Browser.
+2. Paste the address (usually`http://localhost:8080/overlay`).
+3. Set width 1920, height 1080.
+
+You'll see a tip QR code in the corner and live tip alerts when money
+comes in. Position and resize it however you like.
+
+## Step 7: Go live
+
+With`uv run lovecash serve` running and the overlay in OBS, you're
+ready. Viewers scan the QR, send BCH, and your toy responds. Keep the
+terminal window visible so you can hit Ctrl-C to stop instantly if
+needed.
+
+## Daily routine once set up
+
+Each stream:
+
+1. Connect your toy in the Lovense app and enable the PC connection.
+2.`uv run lovecash serve`
+3. Make sure the overlay shows "live" (green) in the corner.
+4. Stream.
+
+To stop: press Ctrl-C in the terminal. The toy stops and lovecash
+shuts down cleanly.
+
+## Where to go next
+
+- Design your tip menu: [Tip Rules Guide](tip-rules.md)
+- Stay safe: [Safety Guide](safety.md)
+- Something broken? [Troubleshooting](troubleshooting.md)
