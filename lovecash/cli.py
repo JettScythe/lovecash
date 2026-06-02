@@ -110,7 +110,7 @@ async def _doctor(config: str) -> None:
     from lovecash.bch.cashaddr import to_scripthash
     from lovecash.bch.electrum import ElectrumClient
 
-    if not Path(config).exists():
+    if not await Path(config).exists():
         console.print(
             f"[red]No config at {config}.[/] Run [bold]lovecash init[/] first."
         )

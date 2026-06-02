@@ -4,12 +4,12 @@ from urllib.parse import quote
 
 import segno
 
-from lovecash.bch.cashaddr import decode  # validates the address
+from lovecash.bch.cashaddr import decode
 
 
 def normalize_address(address: str) -> str:
     """Return a full 'bitcoincash:…' URI-safe address, validating it."""
-    decode(address)  # raises ValueError on a bad address — fail loud, fail early
+    decode(address)
     if ":" in address:
         return address.lower()
     return f"bitcoincash:{address.lower()}"
@@ -25,7 +25,6 @@ def build_uri(
     uri = normalize_address(address)
     params: list[str] = []
     if amount_bch is not None:
-        # BCH amount, never sats, per BIP21. Trim trailing zeros.
         amt = Decimal(str(amount_bch)).normalize()
         params.append(f"amount={amt:f}")
     if label:
