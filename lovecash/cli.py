@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from pathlib import Path
 
 import typer
 import yaml
+from anyio import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
