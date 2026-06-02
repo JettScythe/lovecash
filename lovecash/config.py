@@ -4,7 +4,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lovecash.models import TipRule
@@ -53,7 +53,11 @@ class ElectrumServer(BaseModel):
 
 
 class BchConfig(BaseModel):
-    address: str
+    address: str | None = None
+    xpub: str | None = None
+    derivation_branch: int = 0
+    gap_limit: int = 20
+    rotate_on_payment: bool = True
     electrum_host: str = "fulcrum.fountainhead.cash"
     electrum_port: int = 50002
     electrum_ssl: bool = True
@@ -70,6 +74,12 @@ class BchConfig(BaseModel):
             ssl=self.electrum_ssl,
         )
         return [primary, *self.servers]
+
+    @model_validator(mode="after")
+    def _one_identity(self):
+        if bool(self.address) == bool(self.xpub):
+            raise ValueError("set exactly one of bch.address or bch.xpub")
+        return self
 
 
 class ServerConfig(BaseModel):

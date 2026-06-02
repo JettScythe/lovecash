@@ -33,7 +33,14 @@ class Orchestrator:
         self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
         self._status_observers: list = []
         self.connection_state = ConnectionState.CONNECTED
-        self.add_source(PaymentSource(settings.bch, on_status=self._broadcast_status))
+        self._payment_source = PaymentSource(
+            settings.bch, on_status=self._broadcast_status
+        )
+        self.add_source(self._payment_source)
+
+    def current_address(self) -> str:
+        """The address the overlay should display right now."""
+        return self._payment_source.current_address()
 
     def add_status_observer(self, obs) -> None:
         self._status_observers.append(obs)

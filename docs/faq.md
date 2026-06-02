@@ -18,6 +18,21 @@ private keys, and it cannot move funds.
   card-based platforms.
 - It's fast enough to feel responsive.
 
+## Can people see how much I earn?
+
+Not if you use privacy mode (xpub). lovecash gives each tipper a fresh
+address, so your income is spread across many addresses that can't be
+linked or totaled by an observer. With a single static address, anyone
+can see your total — so privacy mode is recommended.
+
+## What's the difference between an address and an xpub?
+
+An address receives one payment and is publicly linkable. An xpub
+(extended public key) lets lovecash generate unlimited fresh addresses
+for privacy. Both are public — neither lets lovecash touch your funds.
+An xpub starts with `xpub`. A private key starts with `xprv` and must
+never be shared with anything, including lovecash.
+
 ## Do viewers need anything special?
 
 Just a Bitcoin Cash wallet app on their phone. They scan the QR code on

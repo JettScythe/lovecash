@@ -74,6 +74,57 @@ curl -k -X POST https://127.0.0.1:30010/command \
 If the toy responds, that action works. Try`Vibrate:3`,`Rotate:3`,
 etc. to find what your toy does.
 
+## Private earnings mode (xpub)
+
+By default, if you use a single static address, anyone can look it up on
+a block explorer and see every tip you've ever received and your running
+total. Privacy mode fixes this.
+
+Instead of one address, you provide an extended public key (xpub) from
+your wallet. lovecash derives a fresh address for every tip, so your
+income is spread across many unlinkable addresses. No one can total your
+earnings by watching one address.
+
+This is still fully non-custodial: an xpub is a PUBLIC key. lovecash can
+generate your receiving addresses and watch them, but it cannot spend.
+Never paste a private key (xprv) or seed phrase — lovecash will reject an
+xprv on sight.
+
+### Setting it up
+
+In `config.yaml`, use `xpub` instead of `address`:
+
+```yaml
+bch:
+  address: null
+  xpub: "xpub6D..." # your account-level xpub (m/44'/145'/0')
+  derivation_branch: 0     # 0 = external/receive chain
+  gap_limit: 20 # how many unused addresses to watch ahead
+  rotate_on_payment: true  # show a fresh address after each tip
+```
+
+Set exactly one of `address` or `xpub`, not both.
+
+### Getting your xpub
+
+In Electron Cash: Wallet -> Information -> Master Public Key. It starts
+with `xpub` and the path shown should be `m/44'/145'/0'`. Copy the xpub
+only — never the seed phrase.
+
+### How rotation works
+
+With `rotate_on_payment: true`, the overlay QR shows a new address after
+every tip. A viewer who scanned the old QR a moment ago is still fine —
+lovecash keeps watching recent addresses (the gap limit window), so their
+tip is still detected. Each new viewer simply sees a fresh address.
+
+### Important: tips sent before lovecash starts
+
+lovecash detects tips that arrive while it's running. If a tip lands
+before you start lovecash (or while it's stopped), it's recorded as
+existing history and will not trigger your toy. Start lovecash before
+sharing your QR, and keep it running through your session.
+
 ## Confirmations: protecting against unconfirmed tips
 
 For small tips, lovecash acts instantly (0 confirmations) so the
@@ -87,7 +138,7 @@ Rule of thumb: leave small tiers at 0 confirmations, set big tiers
 
 ## Hard limits override every rule
 
-In your`limits` section:
+In your `limits` section:
 
 ```yaml
 limits:
@@ -95,7 +146,7 @@ limits:
   max_duration_s: 30
 ```
 
-Even if a rule asks for strength 20, it's capped to your`max_strength`.
+Even if a rule asks for strength 20, it's capped to your `max_strength`.
 This is your safety ceiling and it always wins. Keep it where you're
 comfortable.
 
@@ -116,7 +167,7 @@ limits:
 - override: the newest tip immediately interrupts whatever is running.
   More chaotic, less fair to earlier tippers.
 
-When the queue gets too long (longer than`max_queue_seconds`), the
+When the queue gets too long (longer than `max_queue_seconds`), the
 `trim_strategy` decides what to give up:
 
 | Strategy | What happens in a tip flood |
@@ -136,4 +187,4 @@ who pays sees their tip do something.
 - Show your menu in your stream bio so viewers know what each amount
   does.
 
-After editing`config.yaml`, restart lovecash to load the changes.
+After editing `config.yaml`, restart lovecash to load the changes.

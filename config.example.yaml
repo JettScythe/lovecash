@@ -1,0 +1,83 @@
+# Copy to config.yaml and edit, or just run uv run lovecash init.
+# NO PRIVATE KEYS GO HERE — only your public receiving address.
+# This tool never holds funds.
+
+limits:
+  max_strength: 20
+  max_duration_s: 30
+  min_seconds_between_commands: 0.5
+  playback: queue
+  max_queue_seconds: 30
+  trim_strategy: compress        # drop_oldest | drop_newest | compress
+  min_compressed_duration_s: 1.0
+
+lovense:
+  host: "127.0.0.1"
+  port: 30010
+  use_https: true
+  toy_id: null # null = use first detected toy
+
+bch:
+  address: "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+  xpub: null
+  derivation_branch: 0       # 0 = external/receive chain
+  gap_limit: 20              # unused addresses watched ahead
+  rotate_on_payment: true    # fresh address shown after each tip
+  electrum_host: "fulcrum.jettscythe.xyz"
+  electrum_port: 50002
+  electrum_ssl: true
+  zeroconf_max_sats: 100000 # tips at/below this can fire on 0-conf
+  heartbeat_seconds: 15
+  reconnect_min_seconds: 1
+  reconnect_max_seconds: 60
+
+server:
+  enabled: false
+  bind_host: "127.0.0.1" # use 0.0.0.0 ONLY with a relay_token set
+  bind_port: 8080
+  relay_token: null # required when bind_host is public
+
+rules:
+  - name: hello
+    min_sats: 500
+    max_sats: 1999
+    action: Thrusting
+    strength: 2
+    duration_s: 3
+  - name: tease
+    min_sats: 2000
+    max_sats: 4999
+    action: Thrusting
+    strength: 5
+    duration_s: 5
+  - name: warmup
+    min_sats: 5000
+    max_sats: 9999
+    action: Thrusting
+    strength: 8
+    duration_s: 8
+  - name: steady
+    min_sats: 10000
+    max_sats: 24999
+    action: Thrusting
+    strength: 11
+    duration_s: 12
+  - name: build
+    min_sats: 25000
+    max_sats: 49999
+    action: Thrusting
+    strength: 14
+    duration_s: 15
+  - name: intense
+    min_sats: 50000
+    max_sats: 99999
+    min_confirmations: 1
+    action: Thrusting
+    strength: 17
+    duration_s: 20
+  - name: maximum
+    min_sats: 100000
+    min_confirmations: 1
+    action: Thrusting
+    strength: 20
+    duration_s: 30

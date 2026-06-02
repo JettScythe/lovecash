@@ -20,7 +20,7 @@ def _prefix_expand(prefix: str) -> list[int]:
     return [ord(c) & 0x1F for c in prefix] + [0]
 
 
-def _convertbits(data: list[int], frm: int, to: int) -> list[int]:
+def _convertbits(data, frm: int, to: int, pad: bool = True) -> list[int]:
     acc = 0
     bits = 0
     out: list[int] = []
@@ -31,14 +31,21 @@ def _convertbits(data: list[int], frm: int, to: int) -> list[int]:
         while bits >= to:
             bits -= to
             out.append((acc >> bits) & maxv)
+    if pad and bits:
+        out.append((acc << (to - bits)) & maxv)
     return out
 
 
-def decode(address: str) -> tuple[int, bytes]:
-    """Return (version_type, hash160) for a CashAddr.
+def _hash160(data: bytes) -> bytes:
+    sha = hashlib.sha256(data).digest()
+    return hashlib.new("ripemd160", sha).digest()
 
-    version_type 0 = P2PKH, 1 = P2SH.
-    """
+
+# --- decode ---
+
+
+def decode(address: str) -> tuple[int, bytes]:
+    """Return (kind, hash160). kind 0 = P2PKH, 1 = P2SH."""
     if ":" in address:
         prefix, payload = address.lower().split(":", 1)
     else:
@@ -51,18 +58,36 @@ def decode(address: str) -> tuple[int, bytes]:
     if _polymod(_prefix_expand(prefix) + data) != 0:
         raise ValueError("Invalid CashAddr checksum")
 
-    payload_bytes = bytes(_convertbits(data[:-8], 5, 8))
+    payload_bytes = bytes(_convertbits(data[:-8], 5, 8, pad=False))
     version = payload_bytes[0]
     kind = (version >> 3) & 0x1F
     return kind, payload_bytes[1:21]
 
 
+# --- encode ---
+
+
+def encode_p2pkh(pubkey_hex: str, prefix: str = "bitcoincash") -> str:
+    """CashAddr-encode a P2PKH address from a compressed public key."""
+    h160 = _hash160(bytes.fromhex(pubkey_hex))
+    payload = bytes([0x00]) + h160  # version 0x00 = P2PKH, 160-bit
+    data = _convertbits(payload, 8, 5, pad=True)
+    checksum_input = _prefix_expand(prefix) + data + [0] * 8
+    polymod = _polymod(checksum_input)
+    checksum = [(polymod >> 5 * (7 - i)) & 0x1F for i in range(8)]
+    body = "".join(_CHARSET[d] for d in data + checksum)
+    return f"{prefix}:{body}"
+
+
+# --- scripthash (for Electrum subscriptions) ---
+
+
 def to_scripthash(address: str) -> str:
     """Electrum scripthash: sha256(scriptPubKey), byte-reversed, hex."""
     kind, h160 = decode(address)
-    if kind == 0:  # P2PKH
+    if kind == 0:
         script = b"\x76\xa9\x14" + h160 + b"\x88\xac"
-    elif kind == 1:  # P2SH
+    elif kind == 1:
         script = b"\xa9\x14" + h160 + b"\x87"
     else:
         raise ValueError(f"Unsupported address kind {kind}")

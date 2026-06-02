@@ -13,6 +13,7 @@ dependencies = [
   "pyyaml>=6.0",
   "rich>=13.8",
   "segno>=1.6",             # pure-python QR, native PNG/SVG, no PIL
+  "hdwallet>=2.2,<3",
 ]
 
 [project.optional-dependencies]
