@@ -1,3 +1,10 @@
+## v0.3.0 (2026-06-02)
+
+### Feat
+
+- **bch**: electrum auto-reconnect, heartbeat, gap recovery, status surfacing
+- **core**: pluggable TriggerSource abstraction
+
 ## v0.2.0 (2026-06-01)
 
 ### Feat

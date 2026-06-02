@@ -1,6 +1,3 @@
-# tests/conftest.py
-from __future__ import annotations
-
 import pytest
 
 from lovecash.config import (
@@ -11,9 +8,30 @@ from lovecash.config import (
     ServerConfig,
     Settings,
 )
-from lovecash.models import Action, TipRule
+from lovecash.core.orchestrator import Orchestrator
+from lovecash.core.router import ToyRouter
+from lovecash.models import Action, TipRule, ToyCommand
+from lovecash.safety import SafetyState
 
 ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+
+
+class FakeController:
+    """Records commands instead of touching hardware."""
+
+    def __init__(self) -> None:
+        self.commands: list[ToyCommand] = []
+        self.stopped = False
+
+    async def run(self, cmd: ToyCommand) -> bool:
+        self.commands.append(cmd)
+        return True
+
+    async def stop_all(self) -> None:
+        self.stopped = True
+
+    async def close(self) -> None:
+        pass
 
 
 @pytest.fixture
@@ -23,7 +41,7 @@ def settings() -> Settings:
             max_strength=12,
             max_duration_s=30,
             min_seconds_between_commands=0,
-            playback=Playback.OVERRIDE,
+            playback=Playback.OVERRIDE,  # synchronous; no consumer needed
         ),
         lovense=LovenseConfig(),
         bch=BchConfig(address=ADDR),
@@ -47,3 +65,14 @@ def settings() -> Settings:
             ),
         ],
     )
+
+
+@pytest.fixture
+def orch_and_ctrl(settings):
+    """Orchestrator wired to a FakeController via an injected router."""
+    safety = SafetyState(settings.limits.min_seconds_between_commands)
+    ctrl = FakeController()
+    router = ToyRouter(safety, settings.limits)
+    router.add_toy(settings.lovense.toy_id or "default", ctrl)
+    orch = Orchestrator(settings, router=router)
+    return orch, ctrl

@@ -1,61 +1,94 @@
+import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
-from lovecash.bch.watcher import PaymentWatcher
 from lovecash.config import Settings
-from lovecash.core.player import CommandPlayer
+from lovecash.core.router import ToyRouter
 from lovecash.engine.rules import RulesEngine
-from lovecash.lovense.controller import LovenseController
-from lovecash.models import TipEvent
+from lovecash.resolve import DirectResolver, PaymentResolver, Resolver
 from lovecash.safety import SafetyState
+from lovecash.triggers.base import TriggerSource
+from lovecash.triggers.events import TriggerEvent
+from lovecash.triggers.payment import PaymentSource
+from lovecash.triggers.status import ConnectionState
 
 log = logging.getLogger("lovecash.core")
 
-TipObserver = Callable[[TipEvent], Awaitable[None]]
+TriggerObserver = Callable[[TriggerEvent], Awaitable[None]]
 
 
 class Orchestrator:
-    def __init__(
-        self, settings: Settings, controller: LovenseController | None = None
-    ) -> None:
+    def __init__(self, settings: Settings, router: ToyRouter | None = None) -> None:
         self._settings = settings
         self.safety = SafetyState(settings.limits.min_seconds_between_commands)
-        self.controller = controller or LovenseController(
-            settings.lovense, settings.limits, self.safety
-        )
-        self.engine = RulesEngine(settings.rules)
-        self.player = CommandPlayer(self.controller, settings.limits)
-        self.watcher = PaymentWatcher(settings.bch, self._handle_tip)
-        self._observers: list[TipObserver] = []
+        self.router = router or ToyRouter.from_settings(settings, self.safety)
+        self.safety = self.router.safety
+        self.resolvers: dict[str, Resolver] = {
+            "payment": PaymentResolver(RulesEngine(settings.rules)),
+            "direct": DirectResolver(),
+        }
+        self.sources: list[TriggerSource] = []
+        self._observers: list[TriggerObserver] = []
+        self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
+        self._status_observers: list = []
+        self.connection_state = ConnectionState.CONNECTED
+        self.add_source(PaymentSource(settings.bch, on_status=self._broadcast_status))
 
-    def add_observer(self, obs: TipObserver) -> None:
-        """Hook for the hosted relay to broadcast tip/overlay events."""
+    def add_status_observer(self, obs) -> None:
+        self._status_observers.append(obs)
+
+    async def _broadcast_status(self, state) -> None:
+        self.connection_state = state
+        for obs in self._status_observers:
+            try:
+                await obs(state)
+            except Exception as exc:
+                log.error("Status observer error: %s", exc)
+
+    def add_source(self, source: TriggerSource) -> None:
+        self.sources.append(source)
+
+    def add_observer(self, obs: TriggerObserver) -> None:
         self._observers.append(obs)
 
-    async def _handle_tip(self, tip: TipEvent) -> None:
-        log.info("Tip received: %s", tip.model_dump())
+    async def _emit(self, event: TriggerEvent) -> None:
+        await self._queue.put(event)
+
+    async def _handle_event(self, event: TriggerEvent) -> None:
         for obs in self._observers:
             try:
-                await obs(tip)
-            except Exception as exc:
+                await obs(event)
+            except Exception as exc:  # observers must never break the core
                 log.error("Observer error: %s", exc)
-
-        command = self.engine.resolve(tip)
-        if command is None:
+        resolver = self.resolvers.get(event.kind)
+        if resolver is None:
             return
-        await self.player.submit(command)
+        for cmd in resolver.resolve(event):
+            await self.router.dispatch(cmd, event.target)
+
+    async def _consume(self) -> None:
+        while True:
+            await self._handle_event(await self._queue.get())
 
     async def run(self) -> None:
-        log.info("Orchestrator starting.")
+        self.router.start()
+        consumer = asyncio.create_task(self._consume())
+        tasks = [asyncio.create_task(s.run(self._emit)) for s in self.sources]
         try:
-            await self.watcher.start()
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            pass
         finally:
+            consumer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consumer
             await self.shutdown()
 
     async def shutdown(self) -> None:
         self.safety.panic_stop()
-        await self.player.stop()
-        await self.controller.stop_all()
-        await self.controller.close()
-        await self.watcher.close()
+        await self.router.stop_all()
+        await self.router.close()
+        for source in self.sources:
+            await source.close()
         log.info("Orchestrator stopped.")

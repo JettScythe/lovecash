@@ -156,7 +156,7 @@ public receiving address. Control endpoints require the relay token.
 3. The controller clamps it to your limits and sends it to the local
    Lovense Connect API — gated by the safety layer.
 
-Small tips can act on 0-conf; tips above`zeroconf_max_sats` wait for a
+Small tips can act on 0-conf; tips above `zeroconf_max_sats` wait for a
 confirmation, which you tune in config.
 
 ## Self-hosting the relay
