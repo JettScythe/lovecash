@@ -26,7 +26,7 @@ def _setup_logging(verbose: bool) -> None:
 
 
 @app.command()
-def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
+async def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
     """Interactive setup wizard. Run this first."""
     from lovecash.bch.cashaddr import decode
 
@@ -94,7 +94,7 @@ def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
             },
         ],
     }
-    Path(config).write_text(yaml.safe_dump(cfg, sort_keys=False))
+    await Path(config).write_text(yaml.safe_dump(cfg, sort_keys=False))
     console.print(f"[green]Wrote {config}.[/] Next: [bold]lovecash doctor[/]")
 
 
@@ -226,7 +226,7 @@ def serve(
 
 
 @app.command()
-def qr(
+async def qr(
     config: str = typer.Option("config.yaml", "--config", "-c"),
     amount: float = typer.Option(None, "--amount"),
     out: str = typer.Option("tip-qr.png", "--out", "-o"),
@@ -236,7 +236,7 @@ def qr(
 
     settings = Settings.from_yaml(config)
     uri = build_uri(settings.bch.address, amount_bch=amount)
-    Path(out).write_bytes(qr_png(uri))
+    await Path(out).write_bytes(qr_png(uri))
     console.print(f"[green]Saved {out}[/]  ({uri})")
 
 
