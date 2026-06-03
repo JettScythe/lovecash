@@ -28,6 +28,7 @@ dev = [
   "pytest-cov>=7.1.0",
   "pre-commit>=4.6.0",
   "commitizen>=4.16.3",
+  "types-pyyaml>=6.0.12.20260518",
 ]
 
 [project.scripts]
@@ -123,3 +124,15 @@ version_scheme = "semver"
 version_provider = "pep621"      # reads version from [project]
 update_changelog_on_bump = true
 major_version_zero = true        # keeps you in 0.x; breaking != 1.0 yet
+
+
+[tool.mypy]
+python_version = "3.14"
+files = ["lovecash", "tests"]
+strict = false                # start lenient; tighten over time
+warn_unused_ignores = true
+warn_redundant_casts = true
+# The ecdsa lib has no type stubs and spams warnings; silence just it.
+[[tool.mypy.overrides]]
+module = ["ecdsa.*", "hdwallet.*", "segno.*"]
+ignore_missing_imports = true

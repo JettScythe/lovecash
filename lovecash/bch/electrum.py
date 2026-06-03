@@ -4,6 +4,7 @@ import json
 import logging
 import ssl
 from collections.abc import AsyncIterator
+from typing import Any
 
 log = logging.getLogger("lovecash.electrum")
 
@@ -106,7 +107,7 @@ class ElectrumClient:
         except asyncio.CancelledError:
             raise
 
-    async def call(self, method: str, *params, timeout: float = 30) -> object:  # noqa: ASYNC109
+    async def call(self, method: str, *params, timeout: float = 30) -> Any:  # noqa: ASYNC109
         if self.disconnected.is_set():
             raise ConnectionError("not connected")
         assert self._writer is not None

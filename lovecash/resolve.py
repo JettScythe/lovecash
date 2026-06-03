@@ -10,7 +10,7 @@ from lovecash.triggers.events import (
 
 class Resolver(ABC):
     @abstractmethod
-    def resolve(self, event: TriggerEvent) -> list[ToyCommand]: ...
+    def resolve(self, event: TriggerEvent) -> list[tuple[ToyCommand, ToyTarget]]: ...
 
 
 class PaymentResolver(Resolver):
