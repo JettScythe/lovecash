@@ -10,7 +10,7 @@ XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7ra
 def _cfg(**over) -> BchConfig:
     base = {"xpub": XPUB, "gap_limit": 5, "rotate_on_payment": True}
     base.update(over)
-    return BchConfig(**base)
+    return BchConfig(**base)  # type: ignore[arg-type]
 
 
 def _tx(value_bch: float, addr: str, conf: int = 1) -> dict:
@@ -30,8 +30,8 @@ class FakeClient:
 
     def __init__(self, history: dict, txs: dict) -> None:
         self.disconnected = asyncio.Event()
-        self._history = history
-        self._txs = txs
+        self._history: dict = history
+        self._txs: dict = txs
         self._notify: asyncio.Queue = asyncio.Queue()
         self.subscribed: set[str] = set()
 
@@ -113,8 +113,8 @@ async def test_window_detects_tip_advances_and_rotates():
 async def test_no_rotation_when_disabled():
     d = XpubDeriver(XPUB)
     sh0 = d.scripthash(0)
-    history = {sh0: []}
-    txs = {}
+    history: dict = {sh0: []}
+    txs: dict = {}
     client = FakeClient(history, txs)
     rotations = []
 
@@ -147,8 +147,8 @@ async def test_scan_with_no_new_txs_does_not_crash():
     txs must complete cleanly, not raise NameError on `advanced`."""
     d = XpubDeriver(XPUB)
     sh0 = d.scripthash(0)
-    history = {sh0: [{"tx_hash": "old", "height": 100}]}
-    txs = {"old": _tx(0.00002, d.address(0))}
+    history: dict = {sh0: [{"tx_hash": "old", "height": 100}]}
+    txs: dict = {"old": _tx(0.00002, d.address(0))}
     client = FakeClient(history, txs)
 
     fired = []

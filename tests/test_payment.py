@@ -2,12 +2,12 @@ from decimal import Decimal
 
 from lovecash.bch.payment import build_uri, qr_png
 
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
 
 
 def test_uri_with_amount():
     uri = build_uri(ADDR, amount_bch=Decimal("0.001"), label="tip")
-    assert uri.startswith("bitcoincash:qpm2")
+    assert uri.startswith("bitcoincash:qqhx")
     assert "amount=0.001" in uri
     assert "label=tip" in uri
 

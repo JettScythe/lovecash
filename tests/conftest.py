@@ -13,7 +13,7 @@ from lovecash.core.router import ToyRouter
 from lovecash.models import Action, TipRule, ToyCommand
 from lovecash.safety import SafetyState
 
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
 
 class FakeController:
@@ -45,7 +45,7 @@ def settings() -> Settings:
             playback=Playback.OVERRIDE,
         ),
         lovense=LovenseConfig(),  # legacy single-toy
-        bch=BchConfig(address=ADDR),
+        bch=BchConfig(xpub=XPUB),
         server=ServerConfig(),
         rules=[
             TipRule(

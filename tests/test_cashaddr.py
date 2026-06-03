@@ -2,7 +2,7 @@ from lovecash.bch.cashaddr import decode, to_scripthash
 
 # Well-known CashAddr test vector (P2PKH).
 
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
 
 
 def test_decode_kind_p2pkh():

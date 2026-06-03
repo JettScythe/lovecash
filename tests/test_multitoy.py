@@ -1,11 +1,13 @@
-from lovecash.config import Limits, LovenseConfig
+from conftest import FakeController
+
+from lovecash.config import Limits, LovenseConfig, Playback
 from lovecash.core.router import ToyRouter
 from lovecash.engine.rules import RulesEngine
 from lovecash.models import Action, TipRule
 from lovecash.safety import SafetyState
 from lovecash.triggers.events import PaymentTrigger, ToyTarget
 
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
 
 
 def _pay(sats):
@@ -80,22 +82,9 @@ def test_untargeted_rule_hits_all():
     assert results[0][1] is None  # None target = all toys
 
 
-class FakeController:
-    def __init__(self, toy_id):
-        self.toy_id = toy_id
-        self.commands = []
-
-    async def run(self, cmd):
-        self.commands.append(cmd)
-        return True
-
-    async def stop_all(self): ...
-    async def close(self): ...
-
-
 async def test_router_dispatches_to_named_toy():
     safety = SafetyState(0)
-    router = ToyRouter(safety, Limits(playback="override"))
+    router = ToyRouter(safety, Limits(playback=Playback.OVERRIDE))
     a, b = FakeController("his"), FakeController("hers")
     router.add_toy("his", a)
     router.add_toy("hers", b)
@@ -111,7 +100,7 @@ async def test_router_dispatches_to_named_toy():
 
 async def test_panic_stops_all_toys():
     safety = SafetyState(0)
-    router = ToyRouter(safety, Limits(playback="override"))
+    router = ToyRouter(safety, Limits(playback=Playback.OVERRIDE))
     a, b = FakeController("his"), FakeController("hers")
     router.add_toy("his", a)
     router.add_toy("hers", b)

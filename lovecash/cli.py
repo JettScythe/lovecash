@@ -8,8 +8,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from lovecash.bch.cashaddr import to_scripthash
+from lovecash.bch.derive import XpubDeriver, XpubError
+from lovecash.bch.electrum import ElectrumClient
+from lovecash.bch.payment import build_uri, qr_png
 from lovecash.config import Settings
 from lovecash.core.orchestrator import Orchestrator
+from lovecash.server.app import create_app
 
 app = typer.Typer(
     help="Performer-first BCH <-> Lovense bridge.",
@@ -26,30 +31,49 @@ def _setup_logging(verbose: bool) -> None:
 
 
 @app.command()
-async def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
+def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
     """Interactive setup wizard. Run this first."""
-    from lovecash.bch.cashaddr import decode
+    asyncio.run(_init(config))
+
+
+async def _init(config: str) -> None:
 
     console.print(Panel.fit("lovecash setup", style="bold magenta"))
-    if Path(config).exists() and not typer.confirm(
+    if await Path(config).exists() and not typer.confirm(
         f"{config} exists. Overwrite?", default=False
     ):
         raise typer.Exit()
 
-    while True:
-        address = typer.prompt("Your Bitcoin Cash receiving address").strip()
-        try:
-            decode(address)
-            break
-        except ValueError:
-            console.print(
-                "[red]That doesn't look like a valid BCH address. Try again.[/]"
-            )
-
     console.print(
-        "[dim]This address only RECEIVES. lovecash never sees your private keys.[/]"
+        "[dim]Paste your wallet's Master Public Key (starts with 'xpub'). "
+        "Find it in Electron Cash under Wallet -> Information.\n"
+        "NEVER paste a private key (xprv) or seed phrase — lovecash only "
+        "needs your PUBLIC key and can never spend your funds.[/]"
     )
-    max_strength = typer.prompt("Max vibration strength (0-20)", type=int, default=12)
+    deriver: XpubDeriver | None = None
+    xpub = ""
+    while deriver is None:
+        xpub = typer.prompt("Your Bitcoin Cash xpub").strip()
+        try:
+            deriver = XpubDeriver(xpub)
+        except XpubError as exc:
+            console.print(f"[red]{exc}[/]")
+
+    # Sanity check: confirm the first derived address matches the wallet
+    # BEFORE going live, so a wrong-wallet xpub is caught here.
+    first = deriver.address(0)
+    console.print(f"[dim]Your first receiving address will be:[/] [cyan]{first}[/]")
+    if not typer.confirm(
+        "Does this match your wallet's first receive address?", default=True
+    ):
+        console.print(
+            "[red]Stop — that xpub is from a different wallet than you "
+            "expect. Tips would go somewhere you don't control. Re-run "
+            "init with the correct xpub.[/]"
+        )
+        raise typer.Exit(code=1)
+
+    max_strength = typer.prompt("Max toy strength (0-20)", type=int, default=12)
     max_duration = typer.prompt(
         "Max duration per tip (seconds)", type=float, default=30.0
     )
@@ -63,8 +87,11 @@ async def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> N
         },
         "lovense": {"host": "127.0.0.1", "port": 30010, "use_https": True},
         "bch": {
-            "address": address,
-            "electrum_host": "fulcrum.fountainhead.cash",
+            "xpub": xpub,
+            "derivation_branch": 0,
+            "gap_limit": 20,
+            "rotate_on_payment": True,
+            "electrum_host": "fulcrum.jettscythe.xyz",
             "electrum_port": 50002,
             "electrum_ssl": True,
             "zeroconf_max_sats": 100000,
@@ -107,9 +134,6 @@ def doctor(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
 async def _doctor(config: str) -> None:
     from pydantic import ValidationError
 
-    from lovecash.bch.cashaddr import to_scripthash
-    from lovecash.bch.electrum import ElectrumClient
-
     if not await Path(config).exists():
         console.print(
             f"[red]No config at {config}.[/] Run [bold]lovecash init[/] first."
@@ -131,15 +155,11 @@ async def _doctor(config: str) -> None:
         raise typer.Exit(code=1) from exc
 
     table = Table("Check", "Result")
-    # ... rest of the function unchanged (address / electrum / lovense checks)
-    settings = Settings.from_yaml(config)
-
-    # 1. Address
     try:
-        to_scripthash(settings.bch.address)
-        table.add_row("BCH address", "[green]valid[/]")
-    except Exception as exc:
-        table.add_row("BCH address", f"[red]invalid: {exc}[/]")
+        d = XpubDeriver(settings.bch.xpub, settings.bch.derivation_branch)
+        table.add_row("xpub", f"[green]valid -> {d.address(0)}[/]")
+    except XpubError as exc:
+        table.add_row("xpub", f"[red]{exc}[/]")
 
     # 2. Electrum reachability
     try:
@@ -155,20 +175,26 @@ async def _doctor(config: str) -> None:
     except Exception as exc:
         table.add_row("Electrum server", f"[red]unreachable: {exc}[/]")
 
-    # 3. Lovense local API
+    # 3. Lovense local API + toy online status
     try:
         import httpx
 
         scheme = "https" if settings.lovense.use_https else "http"
         url = f"{scheme}://{settings.lovense.host}:{settings.lovense.port}"
         async with httpx.AsyncClient(verify=False, timeout=4) as hc:
-            await hc.get(f"{url}/GetToys")
-        table.add_row("Lovense Connect", "[green]responding[/]")
+            resp = await hc.get(f"{url}/GetToys")
+        data = resp.json().get("data", {})
+        online = [t for t in data.values() if t.get("status") == 1]
+        if online:
+            names = ", ".join(t.get("name", "?") for t in online)
+            table.add_row("Lovense Connect", f"[green]{len(online)} toy(s): {names}[/]")
+        else:
+            table.add_row(
+                "Lovense Connect", "[yellow]connected, but no toy online (status=1)[/]"
+            )
     except Exception:
         table.add_row(
-            "Lovense Connect",
-            "[yellow]not found — open the Lovense app and enable "
-            "Game Mode / Connect[/]",
+            "Lovense Connect", "[yellow]not found — open the Lovense app and enable "
         )
 
     console.print(table)
@@ -182,22 +208,25 @@ def run(
 ) -> None:
     """Run the local bridge."""
     _setup_logging(verbose)
-    if not Path(config).exists():
+    asyncio.run(_run(config, skip_check))
+
+
+async def _run(config: str, skip_check: bool) -> None:
+    if not await Path(config).exists():
         console.print("[red]No config found.[/] Run [bold]lovecash init[/] first.")
         raise typer.Exit(code=1)
+
     if not skip_check:
-        asyncio.run(_doctor(config))
-        settings = Settings.from_yaml(config)
-        orch = Orchestrator(settings)
+        await _doctor(config)  # already async — just await it
 
-    async def _main() -> None:
-        try:
-            await orch.run()
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            console.print("[bold red]Panic stop — shutting down.[/]")
-            await orch.shutdown()
+    settings = Settings.from_yaml(config)
+    orch = Orchestrator(settings)  # built unconditionally — fixes the bug
 
-    asyncio.run(_main())
+    try:
+        await orch.run()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        console.print("[bold red]Panic stop — shutting down.[/]")
+        await orch.shutdown()
 
 
 @app.command()
@@ -208,8 +237,6 @@ def serve(
     """Run the hosted relay + OBS overlay (needs the 'server' extra)."""
     _setup_logging(verbose)
     import uvicorn
-
-    from lovecash.server.app import create_app
 
     settings = Settings.from_yaml(config)
     host, port = settings.server.bind_host, settings.server.bind_port
@@ -226,16 +253,20 @@ def serve(
 
 
 @app.command()
-async def qr(
+def qr(
     config: str = typer.Option("config.yaml", "--config", "-c"),
     amount: float = typer.Option(None, "--amount"),
+    index: int = typer.Option(0, "--index", help="Derivation index"),
     out: str = typer.Option("tip-qr.png", "--out", "-o"),
 ) -> None:
     """Save a tipping QR code to a file (for thumbnails, panels, etc.)."""
-    from lovecash.bch.payment import build_uri, qr_png
+    asyncio.run(_qr(config, amount, index, out))
 
+
+async def _qr(config: str, amount: float | None, index: int, out: str) -> None:
     settings = Settings.from_yaml(config)
-    uri = build_uri(settings.bch.address, amount_bch=amount)
+    deriver = XpubDeriver(settings.bch.xpub, settings.bch.derivation_branch)
+    uri = build_uri(deriver.address(index), amount_bch=amount)
     await Path(out).write_bytes(qr_png(uri))
     console.print(f"[green]Saved {out}[/]  ({uri})")
 
@@ -243,10 +274,9 @@ async def qr(
 @app.command()
 def scripthash(address: str) -> None:
     """Print the Electrum scripthash for an address (debugging)."""
-    from lovecash.bch.cashaddr import to_scripthash
 
     console.print(to_scripthash(address))
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     app()

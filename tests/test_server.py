@@ -11,7 +11,9 @@ from lovecash.server.relay import RelayHub
 from lovecash.triggers.events import PaymentTrigger
 
 pytest.importorskip("fastapi")
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
+
+XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
 
 async def test_relay_fans_out_tips():
@@ -40,7 +42,7 @@ def test_public_bind_without_token_refuses():
     cfg = Settings(
         limits=Limits(),
         lovense=LovenseConfig(),
-        bch=BchConfig(address=ADDR),
+        bch=BchConfig(xpub=XPUB),
         server=ServerConfig(bind_host="0.0.0.0", relay_token=None),
     )
     with pytest.raises(RuntimeError, match="relay_token"):

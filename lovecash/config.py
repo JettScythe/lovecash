@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lovecash.models import TipRule
@@ -19,6 +17,12 @@ class TrimStrategy(StrEnum):
     DROP_OLDEST = "drop_oldest"  # responsive: keep recent tips
     DROP_NEWEST = "drop_newest"  # reject the incoming tip's action
     COMPRESS = "compress"  # keep all, shrink durations to fit
+
+
+class ToyConfig(BaseModel):
+    toy_id: str  # Lovense device id
+    max_strength: int | None = None  # falls back to global limits
+    max_duration_s: float | None = None
 
 
 class Limits(BaseModel):
@@ -36,7 +40,7 @@ class Limits(BaseModel):
     # falls back to dropping oldest.
     min_compressed_duration_s: float = Field(default=1.0, ge=0)
 
-    def for_toy(self, toy: ToyConfig) -> Limits:
+    def for_toy(self, toy: ToyConfig) -> "Limits":
         return self.model_copy(
             update={
                 "max_strength": toy.max_strength
@@ -47,12 +51,6 @@ class Limits(BaseModel):
                 else self.max_duration_s,
             }
         )
-
-
-class ToyConfig(BaseModel):
-    toy_id: str  # Lovense device id
-    max_strength: int | None = None  # falls back to global limits
-    max_duration_s: float | None = None
 
 
 class LovenseConfig(BaseModel):
@@ -77,12 +75,11 @@ class ElectrumServer(BaseModel):
 
 
 class BchConfig(BaseModel):
-    address: str | None = None
-    xpub: str | None = None
+    xpub: str
     derivation_branch: int = 0
     gap_limit: int = 20
     rotate_on_payment: bool = True
-    electrum_host: str = "fulcrum.fountainhead.cash"
+    electrum_host: str = "fulcrum.jettscythe.xyz"
     electrum_port: int = 50002
     electrum_ssl: bool = True
     servers: list[ElectrumServer] = []  # optional failover pool
@@ -98,12 +95,6 @@ class BchConfig(BaseModel):
             ssl=self.electrum_ssl,
         )
         return [primary, *self.servers]
-
-    @model_validator(mode="after")
-    def _one_identity(self):
-        if bool(self.address) == bool(self.xpub):
-            raise ValueError("set exactly one of bch.address or bch.xpub")
-        return self
 
 
 class ServerConfig(BaseModel):
@@ -125,6 +116,6 @@ class Settings(BaseSettings):
     rules: list[TipRule] = []
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> Settings:
+    def from_yaml(cls, path: str | Path) -> "Settings":
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls.model_validate(data)

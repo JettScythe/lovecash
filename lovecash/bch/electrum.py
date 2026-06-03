@@ -76,6 +76,7 @@ class ElectrumClient:
 
     async def _read_loop(self) -> None:
         reason = "server closed connection"
+        assert self._reader is not None
         try:
             while True:
                 line = await self._reader.readline()

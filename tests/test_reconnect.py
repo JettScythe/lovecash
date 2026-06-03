@@ -1,81 +1,129 @@
 import asyncio
 
+from lovecash.bch.derive import XpubDeriver
 from lovecash.config import BchConfig
 from lovecash.triggers.payment import PaymentSource
 
-ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
+ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
+
+XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
 
 class FakeClient:
-    """Scriptable Electrum stand-in. `history` is mutated by tests to
-    simulate tips arriving (including during an 'outage')."""
+    """Electrum stand-in keyed by scripthash.
 
-    def __init__(self, history, txs) -> None:
+    history: dict[scripthash -> list[{"tx_hash", "height"}]]
+    txs:     dict[txid -> verbose tx]
+    """
+
+    def __init__(self, history: dict, txs: dict) -> None:
         self.disconnected = asyncio.Event()
         self._history = history
         self._txs = txs
-        self._notify = asyncio.Queue()
+        self._notify: asyncio.Queue = asyncio.Queue()
+        self.subscribed: set[str] = set()
 
     async def connect(self): ...
-    async def subscribe_scripthash(self, sh): ...
+
+    async def subscribe_scripthash(self, sh):
+        self.subscribed.add(sh)
+        # Real Fulcrum sends a notification on subscribe — model it.
+        self._notify.put_nowait({"method": "x.subscribe"})
+
     async def close(self):
         self.disconnected.set()
 
     async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
         if method.endswith("get_history"):
-            return list(self._history)
+            sh = params[0]
+            return list(self._history.get(sh, []))  # list of dicts
         if method.endswith("transaction.get"):
             return self._txs[params[0]]
         return None
 
-    def push(self):  # signal a new notification
+    def push(self):
         self._notify.put_nowait({"method": "x.subscribe"})
 
     async def next_notification(self):
         return await self._notify.get()
 
 
-def _tx(addr, sats, conf=1):
+def _tx(value_bch: float, addr: str, conf: int = 1) -> dict:
     return {
-        "vout": [{"value": sats / 1e8, "scriptPubKey": {"address": addr}}],
+        "vout": [{"value": value_bch, "scriptPubKey": {"address": addr}}],
         "confirmations": conf,
     }
 
 
 async def test_no_double_fire_and_gap_recovery():
-    cfg = BchConfig(address=ADDR)
-    history = [{"tx_hash": "old", "height": 100}]
-    txs = {"old": _tx(ADDR, 5000), "gap": _tx(ADDR, 7000)}
+    d = XpubDeriver(XPUB)
+    sh0 = d.scripthash(0)
+
+    history: dict = {}
+    txs: dict = {}
     client = FakeClient(history, txs)
 
-    fired = []
-    src = PaymentSource(cfg, client_factory=lambda *a: client)
+    fired: list = []
 
     async def emit(ev):
-        fired.append(ev.txid)
+        fired.append(ev)
 
-    # First session: prime swallows "old", so it must NOT fire.
+    src = PaymentSource(BchConfig(xpub=XPUB), client_factory=lambda *a: client)
+
+    # Existing history present at startup -> priming must swallow it.
+    history[sh0] = [{"tx_hash": "old", "height": 100}]
+    txs["old"] = _tx(0.00005, d.address(0))
+
     task = asyncio.create_task(src._session(emit))
     await asyncio.sleep(0.05)
-    assert fired == []  # priming swallowed history
+    assert fired == []  # priming swallowed "old"
 
-    # A tip arrives during normal operation.
-    history.append({"tx_hash": "live", "height": 101})
-    txs["live"] = _tx(ADDR, 6000)
+    # Live tip -> fires exactly once.
+    history[sh0].append({"tx_hash": "live", "height": 101})
+    txs["live"] = _tx(0.00006, d.address(0))
     client.push()
     await asyncio.sleep(0.05)
-    assert fired == ["live"]
+    assert [f.txid for f in fired] == ["live"]
 
-    # Simulate outage: close client, a tip lands while we're down.
-    await client.close()
+    # A notification surfacing ONLY already-seen txs (the new-block case)
+    # must not re-fire and must not crash on `advanced`.
+    client.push()
+    await asyncio.sleep(0.05)
+    assert [f.txid for f in fired] == ["live"]
+
     task.cancel()
-    history.append({"tx_hash": "gap", "height": 102})
 
-    # Reconnect: _primed is now True, so scan fires only the gap tip.
-    client2 = FakeClient(history, txs)
-    src._client_factory = lambda *a: client2
+
+async def test_gap_recovery_after_outage():
+    """A tip that lands while disconnected is recovered on reconnect,
+    without re-firing previously-seen history."""
+    d = XpubDeriver(XPUB)
+    sh0 = d.scripthash(0)
+    history: dict = {sh0: [{"tx_hash": "old", "height": 100}]}
+    txs = {"old": _tx(0.00005, d.address(0))}
+
+    fired: list = []
+
+    async def emit(ev):
+        fired.append(ev)
+
+    src = PaymentSource(
+        BchConfig(xpub=XPUB), client_factory=lambda *a: FakeClient(history, txs)
+    )
+
+    # First session primes "old", then we cancel to simulate an outage.
+    task = asyncio.create_task(src._session(emit))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await asyncio.sleep(0.01)
+
+    # Tip arrives during the outage.
+    history[sh0].append({"tx_hash": "gap", "height": 102})
+    txs["gap"] = _tx(0.00007, d.address(0))
+
+    # Reconnect: _primed is True, so _session scans instead of priming,
+    # recovering the gap tip without re-firing "old".
     task2 = asyncio.create_task(src._session(emit))
     await asyncio.sleep(0.05)
-    assert "gap" in fired  # gap recovered
-    assert fired.count("old") == 0  # never re-fired
+    assert [f.txid for f in fired] == ["gap"]  # recovered, no re-fire
     task2.cancel()

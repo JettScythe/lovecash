@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from lovecash.config import Limits, LovenseConfig
@@ -33,7 +31,7 @@ def controller():
         Limits(max_strength=10, max_duration_s=5),
         safety,
     )
-    ctrl._client = FakeHttp()  # bypass real network
+    ctrl._client = FakeHttp()  # type: ignore[assignment]
     return ctrl, safety
 
 

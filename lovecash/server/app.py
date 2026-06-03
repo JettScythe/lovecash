@@ -32,9 +32,6 @@ def create_app(settings: Settings) -> FastAPI:
     orchestrator = Orchestrator(settings)
     orchestrator.add_observer(hub.broadcast_event)
 
-    def _receive_address() -> str:
-        return orchestrator.current_address()
-
     async def _on_status(state) -> None:
         await hub.broadcast({"type": "status", "data": {"connection": state}})
 
@@ -82,7 +79,7 @@ def create_app(settings: Settings) -> FastAPI:
         scale: int = Query(default=8, ge=1, le=20),
     ) -> Response:
         uri = build_uri(
-            _receive_address(),
+            orchestrator.current_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
         )
@@ -91,7 +88,7 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/qr.svg")
     async def qr_svg_ep(amount: float | None = Query(default=None, ge=0)):
         uri = build_uri(
-            _receive_address(),
+            orchestrator.current_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
         )
@@ -101,7 +98,8 @@ def create_app(settings: Settings) -> FastAPI:
     async def uri_ep(amount: float | None = Query(default=None, ge=0)) -> dict:
         return {
             "uri": build_uri(
-                _receive_address(), amount_bch=Decimal(str(amount)) if amount else None
+                orchestrator.current_address(),
+                amount_bch=Decimal(str(amount)) if amount else None,
             )
         }
 
@@ -110,7 +108,8 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/panic", dependencies=[Depends(auth)])
     async def panic() -> dict:
         orchestrator.safety.panic_stop()
-        await orchestrator.controller.stop_all()
+        await orchestrator.router.stop_all()
+
         return {"stopped": True}
 
     @app.post("/resume", dependencies=[Depends(auth)])

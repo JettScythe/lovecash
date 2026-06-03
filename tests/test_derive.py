@@ -3,7 +3,6 @@ import pytest
 from lovecash.bch.derive import XpubDeriver, XpubError
 
 XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
-
 # Independent ground truth: addresses exported from the wallet itself,
 # m/44'/145'/0' account -> external branch /0/index.
 EXPECTED = {

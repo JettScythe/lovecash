@@ -1,17 +1,10 @@
 import asyncio
 
+from conftest import FakeController
+
 from lovecash.config import Limits, Playback, TrimStrategy
 from lovecash.core.player import CommandPlayer
 from lovecash.models import Action, ToyCommand
-
-
-class FakeController:
-    def __init__(self) -> None:
-        self.commands: list[ToyCommand] = []
-
-    async def run(self, cmd: ToyCommand) -> bool:
-        self.commands.append(cmd)
-        return True
 
 
 def _cmd(strength: int, dur: float) -> ToyCommand:
@@ -30,12 +23,13 @@ def _player(strategy: TrimStrategy, cap: float = 15.0) -> CommandPlayer:
 
 
 async def test_queue_runs_in_order():
-    p = _player(TrimStrategy.DROP_OLDEST, cap=100)
-    p.start()
+    ctrl = FakeController()  # typed FakeController, HAS .commands
+    player = CommandPlayer(ctrl, Limits(playback=Playback.QUEUE, max_duration_s=30))
+    player.start()
     for s in (1, 2, 3):
-        await p.submit(_cmd(s, 0.05))
+        await player.submit(_cmd(s, 0.01))
     await asyncio.sleep(0.3)
-    assert [c.strength for c in p._controller.commands] == [1, 2, 3]
+    assert [c.strength for c in ctrl.commands] == [1, 2, 3]
 
 
 def test_drop_oldest_keeps_recent():
@@ -67,11 +61,11 @@ def test_compress_keeps_all_when_possible():
 
 
 def test_override_fires_immediately():
-    limits = Limits(playback=Playback.OVERRIDE)
-    p = CommandPlayer(FakeController(), limits)
+    ctrl = FakeController()  # typed FakeController, HAS .commands
+    p = CommandPlayer(ctrl, Limits(playback=Playback.OVERRIDE))
 
     async def go():
         await p.submit(_cmd(7, 5))
 
     asyncio.run(go())
-    assert p._controller.commands[0].strength == 7
+    assert ctrl.commands[0].strength == 7  # ctrl, not p._controller

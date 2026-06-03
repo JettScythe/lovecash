@@ -5,10 +5,7 @@ e.g. `uv run lovecash run -v`.
 
 ## The doctor check fails
 
-### "BCH address: invalid"
 
-Your address in `config.yaml` is mistyped or incomplete. Copy it fresh
-from your wallet's Receive screen. It should start with `bitcoincash:`.
 
 ### "Electrum server: unreachable"
 
@@ -19,7 +16,7 @@ lovecash can't reach the blockchain server.
 
 ```yaml
 bch:
-  electrum_host: fulcrum.fountainhead.cash
+  electrum_host: fulcrum.jettscythe.xyz
   electrum_port: 50002
 ```
 
@@ -30,18 +27,18 @@ Your toy app isn't sharing its connection.
 - Open the Lovense Connect app (not Lovense Remote).
 - Desktop: enable Game Mode.
 - Phone: open the "connect to PC" screen.
-- Confirm the IP and port in`config.yaml` match what the app shows.
+- Confirm the IP and port in `config.yaml` match what the app shows.
 - Make sure your phone and computer are on the same Wi-Fi network.
 - Only one app can control the toy at once. Close Stream Master or
   Lovense Remote if either is holding the toy.
 
 ## The toy doesn't respond to tips
 
-1. Confirm tips arrive: with`-v` running, you should see "Tip received"
+1. Confirm tips arrive: with `-v` running, you should see "Tip received"
    in the logs when a payment lands. If you don't, it's a payment/
    blockchain issue, not a toy issue.
-2. Confirm the action matches your toy. A vibrator needs`Vibrate`; a
-   thrusting toy needs`Thrusting`. See the
+2. Confirm the action matches your toy. A vibrator needs `Vibrate`; a
+   thrusting toy needs `Thrusting`. See the
    [Tip Rules Guide](tip-rules.md).
 3. Test the toy directly with a curl command (see Tip Rules Guide) to
    isolate whether it's lovecash or the toy connection.
