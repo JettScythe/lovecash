@@ -24,13 +24,15 @@ class LovenseController:
         cfg: LovenseConfig,
         limits: Limits,
         safety: SafetyState,
+        toy_id: str | None = None,
     ) -> None:
         self._cfg = cfg
         self._limits = limits
         self._safety = safety
+        # Explicit per-toy id wins over the legacy single cfg.toy_id.
+        self._toy_id = toy_id or cfg.toy_id
         scheme = "https" if cfg.use_https else "http"
         self._base = f"{scheme}://{cfg.host}:{cfg.port}"
-        # Local Lovense Connect uses a self-signed cert.
         self._client = httpx.AsyncClient(verify=False, timeout=5.0)
 
     async def close(self) -> None:
@@ -44,7 +46,6 @@ class LovenseController:
         )
 
     async def run(self, cmd: ToyCommand) -> bool:
-        """Execute a command. Returns False if blocked by safety."""
         if not await self._safety.allow():
             return False
         safe = self._clamp(cmd)
@@ -54,12 +55,14 @@ class LovenseController:
             "timeSec": safe.duration_s,
             "apiVer": 1,
         }
-        if self._cfg.toy_id:
-            payload["toy"] = self._cfg.toy_id
+        # Target this specific toy when we know its id; "default" means
+        # let Lovense pick the sole connected toy (legacy behavior).
+        if self._toy_id and self._toy_id != "default":
+            payload["toy"] = self._toy_id
         try:
             resp = await self._client.post(f"{self._base}/command", json=payload)
             resp.raise_for_status()
-            log.info("Toy command sent: %s", safe.model_dump())
+            log.info("Toy %s command: %s", self._toy_id or "?", safe.model_dump())
             return True
         except httpx.HTTPError as exc:
             log.error("Toy command failed: %s", exc)

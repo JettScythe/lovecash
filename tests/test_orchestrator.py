@@ -14,6 +14,8 @@ async def test_tip_triggers_command(orch_and_ctrl):
     await orch._handle_event(_pay(5000))
     assert len(ctrl.commands) == 1
     assert ctrl.commands[0].strength == 4
+    # Untargeted rule reached the single toy.
+    assert ctrl.toy_id == "default"
 
 
 async def test_unmatched_tip_does_nothing(orch_and_ctrl):

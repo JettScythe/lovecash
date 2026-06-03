@@ -24,7 +24,6 @@ async def test_direct_source_emits_trigger():
 
 
 async def test_partner_command_reaches_toy(orch_and_ctrl):
-    """A partner's direct command flows through to the toy, no payment."""
     orch, ctrl = orch_and_ctrl
     orch.router.start()
     trig = DirectTrigger(

@@ -36,14 +36,38 @@ class Limits(BaseModel):
     # falls back to dropping oldest.
     min_compressed_duration_s: float = Field(default=1.0, ge=0)
 
+    def for_toy(self, toy: ToyConfig) -> Limits:
+        return self.model_copy(
+            update={
+                "max_strength": toy.max_strength
+                if toy.max_strength is not None
+                else self.max_strength,
+                "max_duration_s": toy.max_duration_s
+                if toy.max_duration_s is not None
+                else self.max_duration_s,
+            }
+        )
+
+
+class ToyConfig(BaseModel):
+    toy_id: str  # Lovense device id
+    max_strength: int | None = None  # falls back to global limits
+    max_duration_s: float | None = None
+
 
 class LovenseConfig(BaseModel):
-    # Lovense Connect / Game Mode local API endpoint.
     host: str = "127.0.0.1"
     port: int = 30010
     use_https: bool = True
-    # If empty, the first reported toy is used.
-    toy_id: str | None = None
+    toys: list[ToyConfig] = []  # multi-toy; empty = legacy single
+    toy_id: str | None = None  # legacy single-toy
+
+    def resolved_toys(self) -> list[ToyConfig]:
+        """Normalize legacy single-toy config into the toys list."""
+        if self.toys:
+            return self.toys
+        # Legacy: one toy (named or the device's first).
+        return [ToyConfig(toy_id=self.toy_id or "default")]
 
 
 class ElectrumServer(BaseModel):

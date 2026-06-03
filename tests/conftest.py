@@ -19,7 +19,8 @@ ADDR = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
 class FakeController:
     """Records commands instead of touching hardware."""
 
-    def __init__(self) -> None:
+    def __init__(self, toy_id: str = "default") -> None:
+        self.toy_id = toy_id
         self.commands: list[ToyCommand] = []
         self.stopped = False
 
@@ -41,9 +42,9 @@ def settings() -> Settings:
             max_strength=12,
             max_duration_s=30,
             min_seconds_between_commands=0,
-            playback=Playback.OVERRIDE,  # synchronous; no consumer needed
+            playback=Playback.OVERRIDE,
         ),
-        lovense=LovenseConfig(),
+        lovense=LovenseConfig(),  # legacy single-toy
         bch=BchConfig(address=ADDR),
         server=ServerConfig(),
         rules=[
@@ -69,10 +70,10 @@ def settings() -> Settings:
 
 @pytest.fixture
 def orch_and_ctrl(settings):
-    """Orchestrator wired to a FakeController via an injected router."""
+    """Single-toy orchestrator with an injected fake (legacy path)."""
     safety = SafetyState(settings.limits.min_seconds_between_commands)
-    ctrl = FakeController()
+    ctrl = FakeController("default")
     router = ToyRouter(safety, settings.limits)
-    router.add_toy(settings.lovense.toy_id or "default", ctrl)
+    router.add_toy("default", ctrl)
     orch = Orchestrator(settings, router=router)
     return orch, ctrl

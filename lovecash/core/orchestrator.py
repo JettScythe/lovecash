@@ -62,17 +62,17 @@ class Orchestrator:
     async def _emit(self, event: TriggerEvent) -> None:
         await self._queue.put(event)
 
-    async def _handle_event(self, event: TriggerEvent) -> None:
+    async def _handle_event(self, event) -> None:
         for obs in self._observers:
             try:
                 await obs(event)
-            except Exception as exc:  # observers must never break the core
+            except Exception as exc:
                 log.error("Observer error: %s", exc)
         resolver = self.resolvers.get(event.kind)
         if resolver is None:
             return
-        for cmd in resolver.resolve(event):
-            await self.router.dispatch(cmd, event.target)
+        for cmd, target in resolver.resolve(event):
+            await self.router.dispatch(cmd, target)
 
     async def _consume(self) -> None:
         while True:

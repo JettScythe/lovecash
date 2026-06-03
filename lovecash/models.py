@@ -41,6 +41,7 @@ class TipRule(BaseModel):
     action: Action
     strength: int = Field(ge=0, le=20)
     duration_s: float = Field(ge=0, le=3600)
+    toy: str | None = None
 
     @model_validator(mode="after")
     def _check_range(self) -> TipRule:

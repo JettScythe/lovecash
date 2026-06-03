@@ -162,6 +162,7 @@ class PaymentSource(TriggerSource):
         log.info("Watching %s (primed %d txs)", self.current_address(), len(self._seen))
 
     async def _scan_all(self, emit):
+        advanced = False  # MUST be initialized before the loop
         log.info("scan: checking %d scripthashes", len(self._scripthashes()))
         for index, sh in self._scripthashes():
             history = await self._client.call("blockchain.scripthash.get_history", sh)
@@ -179,8 +180,10 @@ class PaymentSource(TriggerSource):
                 if trig and trig.amount_sats > 0:
                     log.info("emitting trigger: %d sats", trig.amount_sats)
                     await emit(trig)
-                    if (self._deriver and index is not None) and (
-                        index >= self._next_index
+                    if (
+                        self._deriver
+                        and index is not None
+                        and index >= self._next_index
                     ):
                         self._next_index = index + 1
                         advanced = True

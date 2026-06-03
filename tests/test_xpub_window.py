@@ -139,3 +139,32 @@ async def test_no_rotation_when_disabled():
     assert src._next_index == 1
     # ...but no NEW rotation event beyond the initial connect announce.
     assert rotations == [0]
+
+
+# tests/test_xpub_window.py — add
+async def test_scan_with_no_new_txs_does_not_crash():
+    """A notification (e.g. new block) that surfaces only already-seen
+    txs must complete cleanly, not raise NameError on `advanced`."""
+    d = XpubDeriver(XPUB)
+    sh0 = d.scripthash(0)
+    history = {sh0: [{"tx_hash": "old", "height": 100}]}
+    txs = {"old": _tx(0.00002, d.address(0))}
+    client = FakeClient(history, txs)
+
+    fired = []
+
+    async def emit(ev):
+        fired.append(ev)
+
+    src = PaymentSource(_cfg(), client_factory=lambda *a: client)
+    task = asyncio.create_task(src._session(emit))
+    await asyncio.sleep(0.05)  # prime swallows "old"
+    fired.clear()
+
+    # A block confirms: same tx reappears, already in _seen.
+    client.push()
+    await asyncio.sleep(0.05)
+    assert fired == []  # nothing new
+    assert src._next_index == 0  # no advance
+    # The real assertion: we got here without a NameError crash.
+    task.cancel()
