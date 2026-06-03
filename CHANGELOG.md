@@ -1,3 +1,9 @@
+## v0.4.1 (2026-06-02)
+
+### Fix
+
+- **payment**: initialize 'advanced' before scan look (block notifications crashed)
+
 ## v0.4.0 (2026-06-02)
 
 ### Feat
