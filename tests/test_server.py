@@ -11,7 +11,6 @@ from lovecash.server.relay import RelayHub
 from lovecash.triggers.events import PaymentTrigger
 
 pytest.importorskip("fastapi")
-ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
 
 XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
