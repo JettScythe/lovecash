@@ -1,3 +1,13 @@
+## v0.6.0 (2026-06-04)
+
+### Feat
+
+- **.**: add queue overlay & runaway scans
+
+### Refactor
+
+- **.**: bump uv.lovk lovecash version, remove unused ADDR
+
 ## v0.5.0 (2026-06-03)
 
 ### BREAKING CHANGE
