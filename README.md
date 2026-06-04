@@ -187,3 +187,32 @@ Live-network tests (against a real Electrum server) are opt-in:
 ```bash
 uv run pytest -m integration
 ```
+
+
+## License
+
+lovecash is licensed under the **GNU Affero General Public License
+v3.0-or-later (AGPL-3.0-or-later)**. See [LICENSE](LICENSE).
+
+In plain terms:
+
+- **Use it, fork it, modify it, self-host it — freely.** It's genuinely
+  open source.
+- **If you run a modified version as a network service**, the AGPL
+  requires you to make your modified source available to that service's
+  users under the AGPL.
+- **Your funds stay yours.** This is unrelated to licensing, but worth
+  repeating: lovecash is non-custodial and never holds your keys.
+
+### Commercial licensing
+
+Need to use lovecash in a way the AGPL doesn't allow — for example, a
+closed-source hosted service? A separate commercial license is
+available. See [COMMERCIAL.md](COMMERCIAL.md).
+
+### Contributing
+
+Contributions are welcome. Because lovecash is dual-licensed (AGPL plus
+commercial), contributors are asked to agree to a
+[Contributor License Agreement](CLA.md) so contributions can be included
+in both tracks. The CLA bot will prompt you on your first pull request.
