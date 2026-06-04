@@ -38,11 +38,7 @@ This downloads everything lovecash needs. You only do this once.
 
 1. Open the Lovense Connect app on your phone or desktop.
 2. Turn on your toy and let the app connect to it.
-3. Enable the computer connection:
-    - Desktop app: turn on Game Mode (look for a game-controller icon).
-    - Phone app: find the "connect to PC" screen, which shows an IP
-     address and port.
-4. Note the address and port shown. On desktop it's usually
+3. Note the address and port. On desktop it's usually
 `127.0.0.1` and port`30010`.
 
 ## Step 3: Run the setup wizard

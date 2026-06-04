@@ -25,9 +25,6 @@ bch:
 Your toy app isn't sharing its connection.
 
 - Open the Lovense Connect app (not Lovense Remote).
-- Desktop: enable Game Mode.
-- Phone: open the "connect to PC" screen.
-- Confirm the IP and port in `config.yaml` match what the app shows.
 - Make sure your phone and computer are on the same Wi-Fi network.
 - Only one app can control the toy at once. Close Stream Master or
   Lovense Remote if either is holding the toy.
@@ -45,9 +42,9 @@ Your toy app isn't sharing its connection.
 
 ## Tips arrive but the toy barely moves
 
-Your`max_strength` is probably capping it. If you set
+Your `max_strength` is probably capping it. If you set
 `max_strength: 3` during testing, every tip is limited to strength 3.
-Raise it in`config.yaml` once you've confirmed the panic stop works.
+Raise it in `config.yaml` once you've confirmed the panic stop works.
 
 ## "Your config.yaml has a problem"
 
