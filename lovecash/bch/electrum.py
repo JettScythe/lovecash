@@ -144,6 +144,13 @@ class ElectrumClient:
         while True:
             yield await self._notifications.get()
 
+    def drain_notifications(self) -> None:
+        while not self._notifications.empty():
+            try:
+                self._notifications.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
     async def close(self) -> None:
         self._closing = True
         self._fail("closed")

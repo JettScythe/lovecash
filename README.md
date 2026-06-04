@@ -35,9 +35,8 @@ flowchart LR
 
 ## Requirements
 
-- Python 3.14+ and [uv](https://docs.astral.sh/uv/).
-- The Lovense Connect app (phone or desktop) with Game Mode enabled.
-  This is the local-API app, not the Lovense Remote app.
+- [uv](https://docs.astral.sh/uv/).
+- The Lovense Connect app (phone or desktop). This is the local-API app, not the Lovense Remote app.
 - A Bitcoin Cash wallet you control (e.g. Electron Cash).
 - For the OBS overlay: OBS with a Browser source.
 

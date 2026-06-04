@@ -14,6 +14,8 @@ log = logging.getLogger("lovecash.source.payment")
 
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
 AddressFn = Callable[[str, int], Awaitable[None]]  # (address, index)
+TipStatusFn = Callable[[str, str, dict], Awaitable[None]]
+# (tip_id, status, extra) -> e.g. ("abc123", "queued", {"position": 2})
 
 
 class PaymentSource(TriggerSource):
@@ -22,11 +24,13 @@ class PaymentSource(TriggerSource):
         cfg: BchConfig,
         on_status: StatusFn | None = None,
         on_address: AddressFn | None = None,
+        on_tip_status: TipStatusFn | None = None,
         client_factory=None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
         self._on_address = on_address
+        self._on_tip_status = on_tip_status
         self._stopped = False
         self._primed = False
         self._server_idx = 0
@@ -34,10 +38,9 @@ class PaymentSource(TriggerSource):
         self._client_factory = client_factory or self._default_factory
         self._deriver: XpubDeriver = XpubDeriver(cfg.xpub, cfg.derivation_branch)
         self._next_index = 0
-        # index -> scripthash, for the currently-subscribed window
         self._sh_to_index: dict[str, int] = {}
-        # txids already emitted, keyed globally (works across indices)
         self._seen: set[str] = set()
+        self._confirming: set[str] = set()
 
     @property
     def source_id(self) -> str:
@@ -201,6 +204,13 @@ class PaymentSource(TriggerSource):
                 await self._on_address(self.current_address(), self._next_index)
                 log.info("Rotated overlay to index %d", self._next_index)
 
+    async def _announce_tip(self, tip_id: str, status: str, extra: dict) -> None:
+        if self._on_tip_status is not None:
+            try:
+                await self._on_tip_status(tip_id, status, extra)
+            except Exception as exc:
+                log.error("Tip-status observer error: %s", exc)
+
     async def _build_trigger(self, txid: str, height: int):
         client = self._require_client()
         tx = await client.call("blockchain.transaction.get", txid, True)
@@ -221,8 +231,14 @@ class PaymentSource(TriggerSource):
 
         confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
         if confirmations == 0 and amount_sats > self._cfg.zeroconf_max_sats:
-            self._seen.discard(txid)  # re-check on confirmation
+            self._seen.discard(txid)
+            if txid not in self._confirming:
+                self._confirming.add(txid)
+                await self._announce_tip(
+                    txid, "confirming", {"amount_sats": amount_sats}
+                )
             return None
+        self._confirming.discard(txid)
         return PaymentTrigger(
             source_id=self.source_id,
             txid=txid,

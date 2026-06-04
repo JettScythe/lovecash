@@ -4,10 +4,10 @@
 
 limits:
   max_strength: 20
-  max_duration_s: 30
+  max_duration_s: 120
   min_seconds_between_commands: 0.5
   playback: queue
-  max_queue_seconds: 30
+  max_queue_seconds: 3600
   trim_strategy: compress        # drop_oldest | drop_newest | compress
   min_compressed_duration_s: 1.0
 

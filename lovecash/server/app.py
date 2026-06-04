@@ -35,14 +35,19 @@ def create_app(settings: Settings) -> FastAPI:
     async def _on_status(state) -> None:
         await hub.broadcast({"type": "status", "data": {"connection": state}})
 
+    async def _on_tip_status(tip_id: str, status: str, extra: dict) -> None:
+        await hub.broadcast(
+            {"type": "tip_status", "data": {"id": tip_id, "status": status, **extra}}
+        )
+
     async def _on_address(addr: str, index: int) -> None:
         await hub.broadcast(
             {"type": "address", "data": {"address": addr, "index": index}}
         )
 
-    orchestrator._payment_source._on_address = _on_address
-
     orchestrator.add_status_observer(_on_status)
+    orchestrator.add_tip_status_observer(_on_tip_status)
+    orchestrator.add_address_observer(_on_address)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

@@ -12,7 +12,7 @@ log = logging.getLogger("lovecash.lovense")
 
 
 class LovenseController:
-    """Talks to the local Lovense Connect / Game Mode HTTP API.
+    """Talks to the local Lovense Connect.
 
     Uses the local endpoint so toy control never round-trips through a
     third-party cloud. All commands are clamped to performer limits and
