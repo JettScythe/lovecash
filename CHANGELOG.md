@@ -1,3 +1,18 @@
+## v0.5.0 (2026-06-03)
+
+### BREAKING CHANGE
+
+- xPub *only*
+
+### Fix
+
+- **.**: remove single address support
+- **cli.py**: await anyio.Path.writexxxx
+
+### Refactor
+
+- **.**: correct type hints
+
 ## v0.4.1 (2026-06-02)
 
 ### Fix

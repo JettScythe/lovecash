@@ -18,7 +18,6 @@ lovense:
   toy_id: null # null = use first detected toy
 
 bch:
-  address: "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"
   xpub: null
   derivation_branch: 0       # 0 = external/receive chain
   gap_limit: 20              # unused addresses watched ahead
