@@ -20,7 +20,7 @@ private keys, and it cannot move funds.
 
 ## Can people see how much I earn?
 
-Not if you use privacy mode (xpub). lovecash gives each tipper a fresh
+No, as long as you don't share your xPub. lovecash gives each tipper a fresh
 address, so your income is spread across many addresses that can't be
 linked or totaled by an observer. With a single static address, anyone
 can see your total — so privacy mode is recommended.

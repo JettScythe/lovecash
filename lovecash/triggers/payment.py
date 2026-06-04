@@ -49,6 +49,34 @@ class PaymentSource(TriggerSource):
             raise RuntimeError("no active Electrum connection")
         return self._client
 
+    async def _discover_start_index(self) -> int:
+        """Find the first never-used address by scanning the chain.
+
+        Prevents address reuse across sessions when a performer reuses
+        the same xpub: we resume past every address that already has
+        history, instead of restarting at index 0.
+        """
+        client = self._require_client()
+        highest_used = -1
+        i = 0
+        consecutive_unused = 0
+        while consecutive_unused < self._cfg.gap_limit:
+            sh = self._deriver.scripthash(i)
+            history = await client.call("blockchain.scripthash.get_history", sh)
+            if history:
+                highest_used = i
+                consecutive_unused = 0
+            else:
+                consecutive_unused += 1
+            i += 1
+        start = highest_used + 1
+        log.info(
+            "Address discovery: highest used index %d, starting at %d",
+            highest_used,
+            start,
+        )
+        return start
+
     def current_address(self) -> str:
         return self._deriver.address(self._next_index)
 
@@ -113,38 +141,32 @@ class PaymentSource(TriggerSource):
     async def _session(self, emit: EmitFn) -> bool:
         server = self._next_server()
         self._client = self._client_factory(server.host, server.port, server.ssl)
-        await self._client.connect()
-        await self._subscribe_all()
+        client = self._client
+        await client.connect()
 
         if not self._primed:
-            await self._prime()
+            # First connect: discover where to resume, then subscribe.
+            self._next_index = await self._discover_start_index()
+            await self._subscribe_all()
             self._primed = True
         else:
-            await self._scan_all(emit)  # gap recovery after outage
+            # Reconnect: resubscribe and rescan for gap-recovery.
+            await self._subscribe_all()
+            await self._scan_all(emit)
 
         await self._status(ConnectionState.CONNECTED)
-        if self._on_address:  # show current address on (re)connect
+        if self._on_address:
             await self._on_address(self.current_address(), self._next_index)
         try:
             while not self._stopped:
-                log.info("waiting for notification...")
-                await self._client.next_notification()
-                log.info("NOTIFICATION received, scanning window")
+                await client.next_notification()
                 await self._scan_all(emit)
         finally:
-            await self._client.close()
+            await client.close()
         return True
 
     def _scripthashes(self) -> list[tuple[int | None, str]]:
         return [(i, sh) for sh, i in self._sh_to_index.items()]
-
-    async def _prime(self) -> None:
-        client = self._require_client()
-        for _, sh in self._scripthashes():
-            history = await client.call("blockchain.scripthash.get_history", sh)
-            for item in history or []:
-                self._seen.add(item["tx_hash"])
-        log.info("Watching %s (primed %d txs)", self.current_address(), len(self._seen))
 
     async def _scan_all(self, emit):
         client = self._require_client()

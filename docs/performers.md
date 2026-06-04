@@ -10,15 +10,17 @@ stream. No coding required. Budget about 20 minutes the first time.
 - Each tip triggers your toy based on rules you choose.
 - A panic stop you control at all times.
 
+
 ## Before you start: what you need
 
 1. A computer (Mac, Windows, or Linux) to run lovecash and OBS.
 2. The Lovense Connect app (the one that connects your toy to a
    computer — not Lovense Remote).
-3. Your Lovense toy.
-4. A Bitcoin Cash wallet you control, such as Electron Cash. You only
-   ever give lovecash your receiving address, never your password,
-   seed phrase, or private keys.
+3. Your Lovense toy(s).
+4. A Bitcoin Cash wallet you control, such as Electron Cash. You give
+   lovecash your wallet's **xpub** (Master Public Key) — never your
+   seed phrase or private keys. lovecash can generate your receiving
+   addresses but can never spend your funds.
 5. OBS, if you want the on-screen tip QR and alerts.
 
 ## Step 1: Install lovecash
@@ -51,15 +53,20 @@ In the terminal:
 uv run lovecash init
 ```
 
-It asks a few simple questions:
+It asks for:
 
-- Your Bitcoin Cash receiving address. This is the only place your
-  money goes. Copy it from your wallet's "Receive" screen.
-- Your maximum toy strength (0 to 20). Start low, like 6.
-- Maximum duration per tip in seconds. Start with 10.
-- Whether to enable the on-screen overlay (say yes for OBS).
+- Your wallet's **xpub** (Master Public Key). In Electron Cash:
+  Wallet -> Information -> Master Public Key. It starts with `xpub`.
+  NEVER paste a private key (xprv) or seed phrase.
+- A confirmation: the wizard shows your first receiving address and
+  asks you to confirm it matches your wallet. This catches a
+  wrong-wallet xpub before you go live. If it doesn't match, stop and
+  re-run with the correct xpub.
+- Your maximum toy strength (0-20) and duration per tip.
+- Whether to enable the OBS overlay.
 
-This creates a file called`config.yaml` with your settings. You can
+This writes `config.yaml`. Then run `uv run lovecash doctor` to verify
+your xpub, your Electrum server, and your toy connection. You can
 edit it later (see the [Tip Rules Guide](tip-rules.md)).
 
 ## Step 4: Check everything is connected
@@ -70,7 +77,7 @@ uv run lovecash doctor
 
 You want three green checks:
 
-- BCH address: valid
+- BCH xPub: valid
 - Electrum server: reachable
 - Lovense Connect: responding
 

@@ -23,10 +23,10 @@ This builds the image and starts the relay on port 8080, reading your
 ## Exposing it publicly: required precautions
 
 The relay refuses to start on a public address without a relay token,
-because the`/resume` endpoint could otherwise be used by anyone to clear
+because the `/resume` endpoint could otherwise be used by anyone to clear
 your panic stop. To expose it:
 
-1. Set a long, random token in`config.yaml`:
+1. Set a long, random token in `config.yaml`:
 
 ```yaml
 server:
@@ -61,12 +61,12 @@ Any config value can be overridden by an environment variable, useful in
 containers. Nested keys use double underscores:
 
 ```bash
-LOVECASH_BCH__ADDRESS=bitcoincash:q...
+LOVECASH_BCH__XPUB=xpub...
 LOVECASH_SERVER__RELAY_TOKEN=your-secret
 ```
 
 ## Important limitation
 
-The relay assumes a single performer and a single toy. It is not a
+The relay assumes a single performer. It is not a
 multi-tenant service. Each performer should run their own instance with
-their own config and their own wallet address.
+their own config and their own wallet xPub.

@@ -12,6 +12,48 @@ Cash. 100,000,000 satoshis = 1 BCH.
 When a tip arrives, lovecash finds the matching rule and triggers your
 toy. If a tip matches more than one rule, the highest tier wins.
 
+
+## Multiple toys
+
+You can connect more than one toy and give each its own rules. Declare
+your toys in `config.yaml`:
+
+```yaml
+lovense:
+  host: "127.0.0.1"
+  port: 30010
+  toys:
+    - toy_id: "428ecdba..."     # device id from`lovecash doctor`
+      max_strength: 15
+    - toy_id: "9f2c1a..."
+      max_strength: 20
+```
+
+Then target rules at a specific toy with the`toy` field. A rule with no
+`toy` drives all toys:
+
+```yaml
+rules:
+  - name: "both-toys"
+    min_sats: 1000
+    action: Vibrate # no`toy` -> every toy responds
+    strength: 5
+    duration_s: 3
+  - name: "toy-a-only"
+    min_sats: 5000
+    toy: "428ecdba..."       # only this toy
+    action: Thrusting
+    strength: 12
+    duration_s: 10
+```
+
+A single tip can drive multiple toys: if two rules (one per toy) match
+the same amount, both fire. Within each toy, the highest matching tier
+wins. Per-toy `max_strength`/`max_duration_s` override the global limits.
+
+To find your toy ids, run `lovecash doctor` — it lists each connected
+toy by id and name.
+
 ## A complete example
 
 ```yaml
@@ -74,36 +116,14 @@ curl -k -X POST https://127.0.0.1:30010/command \
 If the toy responds, that action works. Try`Vibrate:3`,`Rotate:3`,
 etc. to find what your toy does.
 
-## Private earnings mode (xpub)
+## Your earnings stay private
 
-By default, if you use a single static address, anyone can look it up on
-a block explorer and see every tip you've ever received and your running
-total. Privacy mode fixes this.
+lovecash gives every tipper a fresh address derived from your xpub, so
+no one can watch one address and total your income. Each session it also
+automatically resumes at a never-used address, so addresses are never
+reused across streams. This is fully non-custodial — lovecash holds no
+keys and can never touch your funds.
 
-Instead of one address, you provide an extended public key (xpub) from
-your wallet. lovecash derives a fresh address for every tip, so your
-income is spread across many unlinkable addresses. No one can total your
-earnings by watching one address.
-
-This is still fully non-custodial: an xpub is a PUBLIC key. lovecash can
-generate your receiving addresses and watch them, but it cannot spend.
-Never paste a private key (xprv) or seed phrase — lovecash will reject an
-xprv on sight.
-
-### Setting it up
-
-In `config.yaml`, use `xpub` instead of `address`:
-
-```yaml
-bch:
-  address: null
-  xpub: "xpub6D..." # your account-level xpub (m/44'/145'/0')
-  derivation_branch: 0     # 0 = external/receive chain
-  gap_limit: 20 # how many unused addresses to watch ahead
-  rotate_on_payment: true  # show a fresh address after each tip
-```
-
-Set exactly one of `address` or `xpub`, not both.
 
 ### Getting your xpub
 

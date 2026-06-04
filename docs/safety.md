@@ -4,6 +4,20 @@ Your safety comes first. lovecash is built so that nothing — no tip, no
 viewer, no software glitch — can override your control. This guide
 explains the protections and how to test them.
 
+
+## Connection status
+
+The overlay shows whether lovecash is connected to the Bitcoin Cash
+network. If the connection drops, the status flips to "tips paused —
+reconnecting" and lovecash automatically retries. Tips that arrive once
+it reconnects are still detected. Keep an eye on this indicator — if it
+stays red, check your internet or Electrum server.
+
+`lovecash doctor` also reports whether each toy is online. Note that
+Lovense may disconnect an idle toy on its own; if a toy drops mid-session
+you'll need to reconnect it in the Lovense app.
+
+
 ## The panic stop
 
 The panic stop halts your toy and blocks all further commands until you

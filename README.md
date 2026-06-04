@@ -55,11 +55,11 @@ Three commands and you're live:
 
 ```bash
 uv run lovecash init      # answer a few questions, writes config.yaml
-uv run lovecash doctor    # checks your address, node, and toy connection
+uv run lovecash doctor    # checks your xPub, node, and toy connection
 uv run lovecash serve     # starts the bridge + OBS overlay
 ```
-`init` only ever asks for your public receiving address. If you mistype
-anything,`doctor` tells you in plain English what to fix.
+`init` only ever asks for your wallet xPub. If you mistype
+anything, `doctor` tells you in plain English what to fix.
 
 ## Add the overlay to OBS
 
@@ -67,7 +67,7 @@ This is the entire setup a performer needs:
 
 1. Run `uv run lovecash serve`. It prints your overlay URL.
 2. In OBS: Sources -> add -> Browser.
-3. URL:`http://localhost:8080/overlay`
+3. URL: `http://localhost:8080/overlay`
 4. Size: 1920 x 1080. Done.
 
 The overlay shows a persistent tip QR (bottom-right) and pops an animated
@@ -123,7 +123,7 @@ body, and confirm Ctrl-C stops it mid-buzz before you trust it.
 | Command | What it does |
 |---|---|
 | lovecash init | Interactive setup wizard |
-| lovecash doctor | Preflight checks: address, node, toy |
+| lovecash doctor | Preflight checks: xPub, node, toy |
 | lovecash run | Local bridge (watcher + toy), no overlay |
 | lovecash serve | Bridge plus OBS overlay relay |
 | lovecash qr | Save a tipping QR to a file |
@@ -150,7 +150,7 @@ public receiving address. Control endpoints require the relay token.
 
 ## How it works
 
-1. The watcher subscribes to your address on an Electrum/Fulcrum server
+1. The watcher subscribes to your addresses on an Electrum/Fulcrum server
    and emits a tip event for each new inbound payment.
 2. The rules engine maps the tip amount to a toy command.
 3. The controller clamps it to your limits and sends it to the local

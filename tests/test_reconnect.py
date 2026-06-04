@@ -57,8 +57,37 @@ def _tx(value_bch: float, addr: str, conf: int = 1) -> dict:
 
 async def test_no_double_fire_and_gap_recovery():
     d = XpubDeriver(XPUB)
-    sh0 = d.scripthash(0)
+    history: dict = {}  # empty chain -> discovery lands at index 0
+    txs: dict = {}
+    client = FakeClient(history, txs)
 
+    fired: list = []
+
+    async def emit(ev):
+        fired.append(ev)
+
+    src = PaymentSource(BchConfig(xpub=XPUB), client_factory=lambda *a: client)
+    task = asyncio.create_task(src._session(emit))
+    await asyncio.sleep(0.05)  # discovery: empty chain -> index 0
+    assert src._next_index == 0
+
+    # Live tip on the watched index 0 -> fires once.
+    sh0 = d.scripthash(0)
+    history[sh0] = [{"tx_hash": "live", "height": 101}]
+    txs["live"] = _tx(0.00006, d.address(0))
+    client.push()
+    await asyncio.sleep(0.05)
+    assert [f.txid for f in fired] == ["live"]
+
+    # Block re-notification, same tx already seen -> no double fire.
+    client.push()
+    await asyncio.sleep(0.05)
+    assert [f.txid for f in fired] == ["live"]
+    task.cancel()
+
+
+async def test_gap_recovery_after_outage():
+    d = XpubDeriver(XPUB)
     history: dict = {}
     txs: dict = {}
     client = FakeClient(history, txs)
@@ -70,60 +99,19 @@ async def test_no_double_fire_and_gap_recovery():
 
     src = PaymentSource(BchConfig(xpub=XPUB), client_factory=lambda *a: client)
 
-    # Existing history present at startup -> priming must swallow it.
-    history[sh0] = [{"tx_hash": "old", "height": 100}]
-    txs["old"] = _tx(0.00005, d.address(0))
-
     task = asyncio.create_task(src._session(emit))
-    await asyncio.sleep(0.05)
-    assert fired == []  # priming swallowed "old"
-
-    # Live tip -> fires exactly once.
-    history[sh0].append({"tx_hash": "live", "height": 101})
-    txs["live"] = _tx(0.00006, d.address(0))
-    client.push()
-    await asyncio.sleep(0.05)
-    assert [f.txid for f in fired] == ["live"]
-
-    # A notification surfacing ONLY already-seen txs (the new-block case)
-    # must not re-fire and must not crash on `advanced`.
-    client.push()
-    await asyncio.sleep(0.05)
-    assert [f.txid for f in fired] == ["live"]
-
-    task.cancel()
-
-
-async def test_gap_recovery_after_outage():
-    """A tip that lands while disconnected is recovered on reconnect,
-    without re-firing previously-seen history."""
-    d = XpubDeriver(XPUB)
-    sh0 = d.scripthash(0)
-    history: dict = {sh0: [{"tx_hash": "old", "height": 100}]}
-    txs = {"old": _tx(0.00005, d.address(0))}
-
-    fired: list = []
-
-    async def emit(ev):
-        fired.append(ev)
-
-    src = PaymentSource(
-        BchConfig(xpub=XPUB), client_factory=lambda *a: FakeClient(history, txs)
-    )
-
-    # First session primes "old", then we cancel to simulate an outage.
-    task = asyncio.create_task(src._session(emit))
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.05)  # discovery -> index 0
     task.cancel()
     await asyncio.sleep(0.01)
 
-    # Tip arrives during the outage.
-    history[sh0].append({"tx_hash": "gap", "height": 102})
+    # Tip arrives during the outage, on the watched index 0.
+    sh0 = d.scripthash(0)
+    history[sh0] = [{"tx_hash": "gap", "height": 102}]
     txs["gap"] = _tx(0.00007, d.address(0))
 
-    # Reconnect: _primed is True, so _session scans instead of priming,
-    # recovering the gap tip without re-firing "old".
+    # Reconnect: _primed is True, so _session rescans (not rediscovers),
+    # recovering the gap tip.
     task2 = asyncio.create_task(src._session(emit))
     await asyncio.sleep(0.05)
-    assert [f.txid for f in fired] == ["gap"]  # recovered, no re-fire
+    assert [f.txid for f in fired] == ["gap"]
     task2.cancel()

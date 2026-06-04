@@ -141,7 +141,6 @@ async def test_no_rotation_when_disabled():
     assert rotations == [0]
 
 
-# tests/test_xpub_window.py — add
 async def test_scan_with_no_new_txs_does_not_crash():
     """A notification (e.g. new block) that surfaces only already-seen
     txs must complete cleanly, not raise NameError on `advanced`."""
@@ -165,6 +164,43 @@ async def test_scan_with_no_new_txs_does_not_crash():
     client.push()
     await asyncio.sleep(0.05)
     assert fired == []  # nothing new
-    assert src._next_index == 0  # no advance
+    assert src._next_index == 1  # no advance
     # The real assertion: we got here without a NameError crash.
+    task.cancel()
+
+
+async def _noop(ev):
+    pass
+
+
+async def test_discovery_skips_used_indices():
+    """Reusing an xpub with used addresses resumes past them, never reusing."""
+    d = XpubDeriver(XPUB)
+    # Indices 0,1,2 already have history (prior session).
+    history = {
+        d.scripthash(0): [{"tx_hash": "a", "height": 100}],
+        d.scripthash(1): [{"tx_hash": "b", "height": 101}],
+        d.scripthash(2): [{"tx_hash": "c", "height": 102}],
+    }
+    client = FakeClient(history, {})
+    src = PaymentSource(
+        BchConfig(xpub=XPUB, gap_limit=5), client_factory=lambda *a: client
+    )
+
+    task = asyncio.create_task(src._session(_noop))
+    await asyncio.sleep(0.05)
+    # Resumes at index 3 — never re-shows 0,1,2.
+    assert src._next_index == 3
+    assert src.current_address() == d.address(3)
+    task.cancel()
+
+
+async def test_discovery_empty_chain_starts_at_zero():
+    client = FakeClient({}, {})
+    src = PaymentSource(
+        BchConfig(xpub=XPUB, gap_limit=5), client_factory=lambda *a: client
+    )
+    task = asyncio.create_task(src._session(_noop))
+    await asyncio.sleep(0.05)
+    assert src._next_index == 0  # fresh xpub starts at 0
     task.cancel()
