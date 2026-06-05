@@ -29,6 +29,8 @@ bch:
   heartbeat_seconds: 15
   reconnect_min_seconds: 1
   reconnect_max_seconds: 60
+  dsproof_enabled: true 
+  dsproof_window_seconds: 5.0
 
 server:
   enabled: false

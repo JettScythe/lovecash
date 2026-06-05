@@ -87,7 +87,7 @@ class BchConfig(BaseModel):
     heartbeat_seconds: float = 15.0
     reconnect_min_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0
-    dsproof_enabled: bool = False
+    dsproof_enabled: bool = True
     dsproof_window_seconds: float = 5.0
 
     def server_pool(self) -> list[ElectrumServer]:

@@ -268,9 +268,6 @@ class PaymentSource(TriggerSource):
         client = self._require_client()
         return Verifier(
             fetch_tx=lambda txid: client.call("blockchain.transaction.get", txid, True),
-            dsproof_get=lambda txid: client.call(
-                "blockchain.transaction.dsproof.get", txid
-            ),
             watch=client.watch_dsproof,
             unwatch=client.unwatch_dsproof,
             subscribe=lambda txid: client.call(

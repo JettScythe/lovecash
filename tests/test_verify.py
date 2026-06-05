@@ -47,7 +47,6 @@ async def _no_proof(txid):
 def _verifier(w: FakeWatcher, dsproof_get=_no_proof, window=0.2):
     return Verifier(
         _fetch_confirmed,
-        dsproof_get,
         w.watch,
         w.unwatch,
         w.subscribe,
@@ -69,18 +68,6 @@ async def test_proof_pushed_during_window_needs_conf():
     assert await task is Outcome.NEEDS_CONF
 
 
-async def test_preexisting_proof_needs_conf():
-    w = FakeWatcher()
-
-    async def has_proof(txid):
-        return {"dspid": "x"}
-
-    assert (
-        await _verifier(w, dsproof_get=has_proof).verify("abc", _tx())
-        is Outcome.NEEDS_CONF
-    )
-
-
 async def test_unprotected_skips_window_needs_conf():
     w = FakeWatcher()
 
@@ -90,9 +77,7 @@ async def test_unprotected_skips_window_needs_conf():
             "confirmations": 0,
         }
 
-    v = Verifier(
-        fetch_p2sh, _no_proof, w.watch, w.unwatch, w.subscribe, window_seconds=10
-    )
+    v = Verifier(fetch_p2sh, w.watch, w.unwatch, w.subscribe, window_seconds=10)
     result = await asyncio.wait_for(v.verify("abc", _tx()), timeout=1)
     assert result is Outcome.NEEDS_CONF
 
@@ -103,9 +88,7 @@ async def test_subscribe_failure_needs_conf():
     async def boom(txid):
         raise ConnectionError("down")
 
-    v = Verifier(
-        _fetch_confirmed, _no_proof, w.watch, w.unwatch, boom, window_seconds=0.2
-    )
+    v = Verifier(_fetch_confirmed, w.watch, w.unwatch, boom, window_seconds=0.2)
     assert await v.verify("abc", _tx()) is Outcome.NEEDS_CONF
 
 
@@ -113,3 +96,19 @@ async def test_unwatch_always_called():
     w = FakeWatcher()
     await _verifier(w).verify("abc", _tx())
     assert "abc" not in w.events  # cleaned up after credit
+
+
+async def test_proof_in_subscribe_response_needs_conf():
+    w = FakeWatcher()
+
+    async def subscribe_returns_proof(txid):
+        return {"dspid": "x", "txid": txid}  # proof already present
+
+    v = Verifier(
+        _fetch_confirmed,
+        w.watch,
+        w.unwatch,
+        subscribe_returns_proof,
+        window_seconds=2.0,
+    )
+    assert await v.verify("abc", _tx()) is Outcome.NEEDS_CONF
