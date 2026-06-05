@@ -1,3 +1,10 @@
+## v0.7.0 (2026-06-04)
+
+### Feat
+
+- **bch**: DSP-aware 0-conf - safe credit for high value tips
+- **bch**: add DSProofs (untested
+
 ## v0.6.0 (2026-06-04)
 
 ### Feat
