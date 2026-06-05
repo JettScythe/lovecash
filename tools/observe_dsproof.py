@@ -1,4 +1,3 @@
-# tools/observe_dsproof.py  — TEST TOOLING, not part of the package
 """Watch for a real DSProof on mainnet to validate notification format.
 Run this for a while; mainnet produces dsproofs regularly."""
 

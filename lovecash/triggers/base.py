@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 
 from lovecash.triggers.events import TriggerEvent
 
-# Deliberately minimal. A source runs until cancelled and callsemit
+# Deliberately minimal. A source runs until cancelled and calls emit
 # for each event. That's the whole contract.
 
 
