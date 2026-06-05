@@ -29,20 +29,3 @@ def test_highest_tier_wins():
     cmd = engine.resolve(_tip(5000))
     assert cmd is not None
     assert cmd.strength == 15
-
-
-def test_confirmations_block_match():
-    engine = RulesEngine(
-        [
-            TipRule(
-                name="big",
-                min_sats=100_000,
-                min_confirmations=1,
-                action=Action.VIBRATE,
-                strength=20,
-                duration_s=30,
-            ),
-        ]
-    )
-    assert engine.resolve(_tip(200_000, conf=0)) is None
-    assert engine.resolve(_tip(200_000, conf=1)) is not None

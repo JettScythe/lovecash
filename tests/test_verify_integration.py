@@ -1,5 +1,6 @@
 import asyncio
 
+from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.verify import Outcome
 from lovecash.config import BchConfig
 from lovecash.triggers.payment import PaymentSource
@@ -68,14 +69,13 @@ def _cfg(**over):
         "gap_limit": 5,
         "dsproof_enabled": True,
         "zeroconf_max_sats": 100_000,
+        "always_confirm_above_sats": 1_000_000,
     }
     base.update(over)
     return BchConfig(**base)  # type: ignore[arg-type]
 
 
 async def test_small_tip_skips_verification():
-    from lovecash.bch.derive import XpubDeriver
-
     d = XpubDeriver(XPUB)
     sh = d.scripthash(0)
     client = FakeClient({}, {})
@@ -102,8 +102,6 @@ async def test_small_tip_skips_verification():
 
 
 async def test_high_value_credit_emits():
-    from lovecash.bch.derive import XpubDeriver
-
     d = XpubDeriver(XPUB)
     sh = d.scripthash(0)
     client = FakeClient({}, {})
@@ -131,8 +129,6 @@ async def test_high_value_credit_emits():
 
 
 async def test_high_value_needs_conf_does_not_emit_or_see():
-    from lovecash.bch.derive import XpubDeriver
-
     d = XpubDeriver(XPUB)
     sh = d.scripthash(0)
     client = FakeClient({}, {})
@@ -168,8 +164,6 @@ async def test_high_value_needs_conf_does_not_emit_or_see():
 
 
 async def test_no_double_spawn_while_verifying():
-    from lovecash.bch.derive import XpubDeriver
-
     d = XpubDeriver(XPUB)
     sh = d.scripthash(0)
     client = FakeClient({}, {})
@@ -199,4 +193,42 @@ async def test_no_double_spawn_while_verifying():
     await asyncio.sleep(0.02)  # second scan mid-verify
     await asyncio.sleep(0.3)
     assert vcalls == ["big"]  # verified ONCE, not twice
+    t.cancel()
+
+
+# tests/test_verify_integration.py — add
+async def test_very_high_value_always_confirms_even_clean():
+    """Above the ceiling, wait for a block even with no double-spend.
+
+    A tip over always_confirm_above_sats must never enter verification —
+    it waits for a real confirmation regardless of DSProof, because at high
+    value, proof-based protection is not sufficient on its own.
+    """
+    d = XpubDeriver(XPUB)
+    sh = d.scripthash(0)
+    client = FakeClient({}, {})
+    fired: list = []
+    vcalls: list[str] = []
+    src = PaymentSource(
+        _cfg(always_confirm_above_sats=1_000_000),
+        client_factory=lambda *a: client,
+        verifier_factory=lambda: StubVerifier(Outcome.CREDIT, vcalls),
+    )
+
+    async def emit(ev):
+        fired.append(ev)
+
+    t = asyncio.create_task(src._session(emit))
+    await asyncio.sleep(0.05)
+
+    # 2M sats: above the 1M ceiling. Stubbed verifier would CREDIT if asked,
+    # so this proves the ceiling short-circuits BEFORE verification.
+    client._history[sh] = [{"tx_hash": "huge", "height": 0}]
+    client._txs["huge"] = _tx(d.address(0), 2_000_000)
+    client.push()
+    await asyncio.sleep(0.1)
+
+    assert fired == []  # NOT emitted
+    assert vcalls == []  # verifier NEVER consulted
+    assert "huge" not in src._seen  # un-seen -> credited when confirmed
     t.cancel()

@@ -84,6 +84,7 @@ class BchConfig(BaseModel):
     electrum_ssl: bool = True
     servers: list[ElectrumServer] = []  # optional failover pool
     zeroconf_max_sats: int = 100_000
+    always_confirm_above_sats: int = 5_000_000
     heartbeat_seconds: float = 15.0
     reconnect_min_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0

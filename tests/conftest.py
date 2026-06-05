@@ -59,7 +59,6 @@ def settings() -> Settings:
             TipRule(
                 name="intense",
                 min_sats=50000,
-                min_confirmations=1,
                 action=Action.VIBRATE,
                 strength=12,
                 duration_s=20,

@@ -29,7 +29,7 @@ bch:
   heartbeat_seconds: 15
   reconnect_min_seconds: 1
   reconnect_max_seconds: 60
-  dsproof_enabled: true 
+  dsproof_enabled: true
   dsproof_window_seconds: 5.0
 
 server:
@@ -72,13 +72,11 @@ rules:
   - name: intense
     min_sats: 50000
     max_sats: 99999
-    min_confirmations: 1
     action: Thrusting
     strength: 17
     duration_s: 20
   - name: maximum
     min_sats: 100000
-    min_confirmations: 1
     action: Thrusting
     strength: 20
     duration_s: 30

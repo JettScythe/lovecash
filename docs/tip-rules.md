@@ -72,7 +72,6 @@ rules:
     duration_s: 6
   - name: intense
     min_sats: 50000
-    min_confirmations: 1
     action: Thrusting
     strength: 18
     duration_s: 20
@@ -90,7 +89,6 @@ Each rule must start with a dash (`-`). The fields under it are indented.
 | action | What the toy does. See actions below. |
 | strength | Intensity, 0 to 20. |
 | duration_s | How many seconds it runs. |
-| min_confirmations | Optional. Wait for this many blockchain confirmations before firing. Use on big tiers. |
 
 ## Choosing the right action for your toy
 
@@ -148,11 +146,7 @@ sharing your QR, and keep it running through your session.
 ## Confirmations: protecting against unconfirmed tips
 
 For small tips, lovecash acts instantly (0 confirmations) so the
-experience feels responsive. For large tips, you can require
-`min_confirmations: 1` so the payment is locked into the blockchain
-before your toy reacts. This prevents a rare trick where someone sends a
-big payment and then cancels it before it confirms.
-
+experience feels responsive.
 Rule of thumb: leave small tiers at 0 confirmations, set big tiers
 (say over 50,000 sats) to require 1.
 

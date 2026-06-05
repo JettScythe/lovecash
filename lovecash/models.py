@@ -37,7 +37,6 @@ class TipRule(BaseModel):
     name: str
     min_sats: int = Field(ge=0)
     max_sats: int = Field(default=2**63 - 1, ge=0)
-    min_confirmations: int = Field(default=0, ge=0)
     action: Action
     strength: int = Field(ge=0, le=20)
     duration_s: float = Field(ge=0, le=3600)
@@ -50,10 +49,7 @@ class TipRule(BaseModel):
         return self
 
     def matches(self, tip: TipEvent) -> bool:
-        return (
-            self.min_sats <= tip.amount_sats <= self.max_sats
-            and tip.confirmations >= self.min_confirmations
-        )
+        return self.min_sats <= tip.amount_sats <= self.max_sats
 
     def to_command(self) -> ToyCommand:
         return ToyCommand(

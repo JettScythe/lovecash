@@ -227,7 +227,7 @@ class PaymentSource(TriggerSource):
             return
         confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
 
-        # Confirmed OR small enough -> credit instantly.
+        # Instant tier: too small to be worth attacking.
         if confirmations >= 1 or amount_sats <= self._cfg.zeroconf_max_sats:
             self._seen.add(txid)
             await self._emit_trigger(
@@ -235,7 +235,14 @@ class PaymentSource(TriggerSource):
             )
             return
 
-        # High-value 0-conf.
+        # High-value ceiling: DSProof is not enough; always wait for a block.
+        if amount_sats >= self._cfg.always_confirm_above_sats:
+            await self._announce_tip(
+                txid, "confirming", {"amount_sats": amount_sats, "reason": "high_value"}
+            )
+            return  # left un-seen -> credited when the block confirms it
+
+        # Mid-range: DSProof verification window.
         if not self._cfg.dsproof_enabled:
             await self._announce_tip(txid, "confirming", {"amount_sats": amount_sats})
             return
