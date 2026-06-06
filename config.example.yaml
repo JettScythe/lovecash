@@ -26,6 +26,7 @@ bch:
   electrum_port: 50002
   electrum_ssl: true
   zeroconf_max_sats: 100000 # tips at/below this can fire on 0-conf
+  always_confirm_above_sats: 100000000
   heartbeat_seconds: 15
   reconnect_min_seconds: 1
   reconnect_max_seconds: 60

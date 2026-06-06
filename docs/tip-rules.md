@@ -143,12 +143,48 @@ before you start lovecash (or while it's stopped), it's recorded as
 existing history and will not trigger your toy. Start lovecash before
 sharing your QR, and keep it running through your session.
 
-## Confirmations: protecting against unconfirmed tips
+## How tips are credited: the safety tiers
 
-For small tips, lovecash acts instantly (0 confirmations) so the
-experience feels responsive.
-Rule of thumb: leave small tiers at 0 confirmations, set big tiers
-(say over 50,000 sats) to require 1.
+lovecash decides how fast to act on a tip based on its value and on
+Bitcoin Cash's double-spend protections. Four outcomes, all set under
+`bch:` in your config:
+
+| Tip size | What happens | Why |
+|---|---|---|
+| At or below `zeroconf_max_sats` | Credited instantly | Too small to be worth attacking |
+| Between the two thresholds | Short double-spend check, then credited if clean | Catches the common double-spend in seconds |
+| At or above `always_confirm_above_sats` | Always waits for 1 confirmation | High value: a proof alone isn't enough |
+| Any size, if a double-spend is detected | Waits for 1 confirmation | The payment isn't safe yet |
+
+```yaml
+bch:
+  zeroconf_max_sats: 100000 # at/below: instant
+  always_confirm_above_sats: 5000000  # at/above: always wait for a block
+  dsproof_enabled: true # the double-spend check, on by default
+  dsproof_window_seconds: 5
+```
+
+### Why high-value tips always wait
+
+Double-spend proofs catch someone trying to spend the same coins twice on
+the open network — opportunistic fraud. They do NOT protect against an
+attacker with the resources to get a conflicting transaction mined
+directly. For small and medium tips that's not worth anyone's effort, so
+acting on the unconfirmed payment is safe and instant. For large tips the
+economics change, so above`always_confirm_above_sats` lovecash always
+waits for a real confirmation, even when no attack is detected. Set this
+ceiling to wherever you stop being comfortable trusting an unconfirmed
+payment.
+
+### The double-spend check (dsproof_enabled)
+
+When enabled, mid-range tips are credited the moment a short window passes
+with no double-spend proof — usually a few seconds, instead of waiting
+~10 minutes for a block. The overlay shows a "verifying" state during the
+window. If a double-spend proof appears, the tip falls back to waiting for
+confirmation. This requires an Electrum server with DSProof support
+(Fulcrum has it); if yours doesn't, mid-range tips simply wait for
+confirmation instead.
 
 ## Hard limits override every rule
 

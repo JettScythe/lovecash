@@ -20,11 +20,13 @@ class Outcome(StrEnum):
 class Verifier:
     """Runs the DSProof safety window for a 0-conf tip, event-driven.
 
-    Defaults to NEEDS_CONF on any uncertainty. Credits only when the tx
-    is DSProof-protected AND no proof arrives within the window.
+    Defaults to NEEDS_CONF on any uncertainty. Credits only when the tx is
+    DSProof-protected AND no proof appears within the window.
 
-    `watch` registers a txid and returns (asyncio.Event, unwatch_callable).
-    `dsproof_get` is the one-shot pre-check before the window opens.
+    `watch(txid)` returns an asyncio.Event that fires when a proof
+    notification arrives; `unwatch(txid)` deregisters it. `subscribe(txid)`
+    registers the dsproof subscription and returns the current proof state
+    (a non-None result means a proof already exists -> refuse).
     """
 
     def __init__(
