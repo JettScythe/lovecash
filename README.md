@@ -93,7 +93,6 @@ rules:
     duration_s: 3
   - name: "intense"
     min_sats: 50000
-    min_confirmations: 1    # large tips wait for 1 confirmation
     action: "Vibrate"
     strength: 12
     duration_s: 20

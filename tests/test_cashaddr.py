@@ -1,7 +1,5 @@
 from lovecash.bch.cashaddr import decode, to_scripthash
 
-# Well-known CashAddr test vector (P2PKH).
-
 ADDR = "bitcoincash:qqhx545cwyqvgtre0t2yn8lwzjzajvfaqg87ruq9gw"
 
 

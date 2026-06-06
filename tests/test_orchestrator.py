@@ -1,4 +1,3 @@
-from lovecash.models import Action
 from lovecash.triggers.events import PaymentTrigger
 
 
@@ -23,15 +22,6 @@ async def test_unmatched_tip_does_nothing(orch_and_ctrl):
     orch.router.start()
     await orch._handle_event(_pay(10))
     assert ctrl.commands == []
-
-
-async def test_high_tier_requires_confirmation(orch_and_ctrl):
-    orch, ctrl = orch_and_ctrl
-    orch.router.start()
-    await orch._handle_event(_pay(60000, conf=0))
-    assert ctrl.commands == []
-    await orch._handle_event(_pay(60000, conf=1))
-    assert ctrl.commands[-1].action == Action.VIBRATE
 
 
 async def test_observer_error_does_not_break_core(orch_and_ctrl):

@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+/lovecash/.DS_Store
+/config.yaml
+/.DS_Store

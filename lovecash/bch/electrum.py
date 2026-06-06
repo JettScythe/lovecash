@@ -27,6 +27,17 @@ class ElectrumClient:
         self.disconnected = asyncio.Event()
         self._heartbeat_s = heartbeat_s
         self._hb_task: asyncio.Task | None = None
+        self._dsproof_events: dict[str, asyncio.Event] = {}
+
+    def watch_dsproof(self, txid: str) -> asyncio.Event:
+        """Register interest in dsproof notifications for a txid.
+        Returns an Event that fires when a proof notification arrives."""
+        event = asyncio.Event()
+        self._dsproof_events[txid] = event
+        return event
+
+    def unwatch_dsproof(self, txid: str) -> None:
+        self._dsproof_events.pop(txid, None)
 
     async def connect(self) -> None:
         # Guard against starting a second reader on a stale connection.
@@ -49,7 +60,6 @@ class ElectrumClient:
         )
 
     def _dispatch(self, msg: dict) -> None:
-        """Route one decoded message: RPC response or subscription notice."""
         msg_id = msg.get("id")
         if msg_id is not None and msg_id in self._pending:
             fut = self._pending.pop(msg_id)
@@ -60,7 +70,18 @@ class ElectrumClient:
                 fut.set_exception(RuntimeError(str(err)))
             else:
                 fut.set_result(msg.get("result"))
-        elif msg.get("method", "").endswith("subscribe"):
+            return
+
+        method = msg.get("method", "")
+        if method.endswith("dsproof.subscribe"):
+            params = msg.get("params", [])
+            if params:
+                txid = params[0]
+                event = self._dsproof_events.get(txid)
+                if event is not None:
+                    event.set()
+            return
+        if method.endswith("subscribe"):
             self._notifications.put_nowait(msg)
 
     def _fail(self, reason: str) -> None:

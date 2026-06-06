@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
+from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import BchConfig
 from lovecash.triggers.base import EmitFn, TriggerSource
 from lovecash.triggers.events import PaymentTrigger
@@ -13,9 +14,8 @@ from lovecash.triggers.status import ConnectionState
 log = logging.getLogger("lovecash.source.payment")
 
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
-AddressFn = Callable[[str, int], Awaitable[None]]  # (address, index)
+AddressFn = Callable[[str, int], Awaitable[None]]
 TipStatusFn = Callable[[str, str, dict], Awaitable[None]]
-# (tip_id, status, extra) -> e.g. ("abc123", "queued", {"position": 2})
 
 
 class PaymentSource(TriggerSource):
@@ -26,6 +26,7 @@ class PaymentSource(TriggerSource):
         on_address: AddressFn | None = None,
         on_tip_status: TipStatusFn | None = None,
         client_factory=None,
+        verifier_factory=None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
@@ -40,12 +41,13 @@ class PaymentSource(TriggerSource):
         self._next_index = 0
         self._sh_to_index: dict[str, int] = {}
         self._seen: set[str] = set()
-        self._confirming: set[str] = set()
+        self._verifying: set[str] = set()
+        self._verify_tasks: set[asyncio.Task] = set()
+        self._verifier_factory = verifier_factory
 
     @property
     def source_id(self) -> str:
-        ident = self._cfg.xpub
-        return f"bch:{ident[-8:]}"
+        return f"bch:{self._cfg.xpub[-8:]}"
 
     def _require_client(self) -> ElectrumClient:
         if self._client is None:
@@ -53,12 +55,6 @@ class PaymentSource(TriggerSource):
         return self._client
 
     async def _discover_start_index(self) -> int:
-        """Find the first never-used address by scanning the chain.
-
-        Prevents address reuse across sessions when a performer reuses
-        the same xpub: we resume past every address that already has
-        history, instead of restarting at index 0.
-        """
         client = self._require_client()
         highest_used = -1
         i = 0
@@ -84,9 +80,7 @@ class PaymentSource(TriggerSource):
         return self._deriver.address(self._next_index)
 
     def _our_addresses(self) -> set[str]:
-        """The address bodies (without prefix) we currently watch."""
         addrs = {self._deriver.address(i) for i in self._sh_to_index.values()}
-        # Compare on the part after 'bitcoincash:' to dodge prefix variance.
         return {a.split(":")[-1] for a in addrs}
 
     def _default_factory(self, host, port, ssl) -> ElectrumClient:
@@ -111,7 +105,6 @@ class PaymentSource(TriggerSource):
             await client.subscribe_scripthash(sh)
 
     async def _extend_window(self) -> None:
-        """After advancing next_index, subscribe newly-exposed high indices."""
         client = self._require_client()
         top = self._next_index + self._cfg.gap_limit
         for i in range(self._next_index, top):
@@ -148,12 +141,10 @@ class PaymentSource(TriggerSource):
         await client.connect()
 
         if not self._primed:
-            # First connect: discover where to resume, then subscribe.
             self._next_index = await self._discover_start_index()
             await self._subscribe_all()
             self._primed = True
         else:
-            # Reconnect: resubscribe and rescan for gap-recovery.
             await self._subscribe_all()
             await self._scan_all(emit)
 
@@ -171,38 +162,18 @@ class PaymentSource(TriggerSource):
     def _scripthashes(self) -> list[tuple[int | None, str]]:
         return [(i, sh) for sh, i in self._sh_to_index.items()]
 
-    async def _scan_all(self, emit):
+    async def _scan_all(self, emit) -> None:
         client = self._require_client()
-        advanced = False  # MUST be initialized before the loop
-        log.info("scan: checking %d scripthashes", len(self._scripthashes()))
         for index, sh in self._scripthashes():
             history = await client.call("blockchain.scripthash.get_history", sh)
-            log.info("scan idx=%s sh=%s -> %d txs", index, sh[:12], len(history or []))
             for item in history or []:
                 txid = item["tx_hash"]
-                if txid in self._seen:
+                if txid in self._seen or txid in self._verifying:
                     continue
-                self._seen.add(txid)
                 try:
-                    trig = await self._build_trigger(txid, item.get("height", 0))
+                    await self._process_tx(txid, item.get("height", 0), emit, index)
                 except Exception:
-                    log.exception("build_trigger failed for %s", txid)
-                    continue
-                if trig and trig.amount_sats > 0:
-                    log.info("emitting trigger: %d sats", trig.amount_sats)
-                    await emit(trig)
-                    if (
-                        self._deriver
-                        and index is not None
-                        and index >= self._next_index
-                    ):
-                        self._next_index = index + 1
-                        advanced = True
-        if advanced:
-            await self._extend_window()
-            if self._cfg.rotate_on_payment and self._on_address:
-                await self._on_address(self.current_address(), self._next_index)
-                log.info("Rotated overlay to index %d", self._next_index)
+                    log.exception("process_tx failed for %s", txid)
 
     async def _announce_tip(self, tip_id: str, status: str, extra: dict) -> None:
         if self._on_tip_status is not None:
@@ -211,12 +182,10 @@ class PaymentSource(TriggerSource):
             except Exception as exc:
                 log.error("Tip-status observer error: %s", exc)
 
-    async def _build_trigger(self, txid: str, height: int):
-        client = self._require_client()
-        tx = await client.call("blockchain.transaction.get", txid, True)
+    def _sum_to_us(self, tx: dict) -> tuple[int, str | None]:
         ours = self._our_addresses()
         amount_sats = 0
-        memo = None
+        memo: str | None = None
         for vout in tx.get("vout", []):
             spk = vout.get("scriptPubKey", {})
             addrs = spk.get("addresses") or (
@@ -228,26 +197,96 @@ class PaymentSource(TriggerSource):
                     break
             if spk.get("type") == "nulldata":
                 memo = spk.get("asm")
+        return amount_sats, memo
 
-        confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
-        if confirmations == 0 and amount_sats > self._cfg.zeroconf_max_sats:
-            self._seen.discard(txid)
-            if txid not in self._confirming:
-                self._confirming.add(txid)
-                await self._announce_tip(
-                    txid, "confirming", {"amount_sats": amount_sats}
-                )
-            return None
-        self._confirming.discard(txid)
-        return PaymentTrigger(
+    async def _emit_trigger(
+        self, txid, amount_sats, confirmations, memo, emit, index
+    ) -> None:
+        trig = PaymentTrigger(
             source_id=self.source_id,
             txid=txid,
             amount_sats=amount_sats,
             confirmations=confirmations,
             memo=memo,
         )
+        log.info("emitting trigger: %d sats", amount_sats)
+        await emit(trig)
+        if index is not None and index >= self._next_index:
+            self._next_index = index + 1
+            await self._extend_window()
+            if self._cfg.rotate_on_payment and self._on_address:
+                await self._on_address(self.current_address(), self._next_index)
+                log.info("Rotated overlay to index %d", self._next_index)
+
+    async def _process_tx(self, txid, height, emit, index) -> None:
+        client = self._require_client()
+        tx = await client.call("blockchain.transaction.get", txid, True)
+        amount_sats, memo = self._sum_to_us(tx)
+        if amount_sats <= 0:
+            self._seen.add(txid)
+            return
+        confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
+
+        # Instant tier: too small to be worth attacking.
+        if confirmations >= 1 or amount_sats <= self._cfg.zeroconf_max_sats:
+            self._seen.add(txid)
+            await self._emit_trigger(
+                txid, amount_sats, confirmations, memo, emit, index
+            )
+            return
+
+        # High-value ceiling: DSProof is not enough; always wait for a block.
+        if amount_sats >= self._cfg.always_confirm_above_sats:
+            await self._announce_tip(
+                txid, "confirming", {"amount_sats": amount_sats, "reason": "high_value"}
+            )
+            return  # left un-seen -> credited when the block confirms it
+
+        # Mid-range: DSProof verification window.
+        if not self._cfg.dsproof_enabled:
+            await self._announce_tip(txid, "confirming", {"amount_sats": amount_sats})
+            return
+        if txid in self._verifying:
+            return
+        self._verifying.add(txid)
+        task = asyncio.create_task(
+            self._verify_then_emit(txid, tx, amount_sats, memo, emit, index)
+        )
+        self._verify_tasks.add(task)
+        task.add_done_callback(self._verify_tasks.discard)
+
+    async def _verify_then_emit(self, txid, tx, amount_sats, memo, emit, index) -> None:
+        try:
+            verifier = (self._verifier_factory or self._make_verifier)()
+            outcome = await verifier.verify(txid, tx)
+            if outcome is Outcome.CREDIT:
+                self._seen.add(txid)
+                await self._emit_trigger(txid, amount_sats, 0, memo, emit, index)
+            else:
+                await self._announce_tip(
+                    txid, "confirming", {"amount_sats": amount_sats}
+                )
+        except Exception:
+            log.exception("verify_then_emit failed for %s", txid)
+        finally:
+            self._verifying.discard(txid)
+
+    def _make_verifier(self) -> Verifier:
+        client = self._require_client()
+        return Verifier(
+            fetch_tx=lambda txid: client.call("blockchain.transaction.get", txid, True),
+            watch=client.watch_dsproof,
+            unwatch=client.unwatch_dsproof,
+            subscribe=lambda txid: client.call(
+                "blockchain.transaction.dsproof.subscribe", txid
+            ),
+            on_status=self._announce_tip,
+            window_seconds=self._cfg.dsproof_window_seconds,
+        )
 
     async def close(self) -> None:
         self._stopped = True
+        for task in self._verify_tasks:
+            task.cancel()
         if self._client:
             await self._client.close()

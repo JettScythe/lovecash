@@ -1,3 +1,19 @@
+## v0.7.0 (2026-06-04)
+
+### Feat
+
+- **bch**: DSProof-aware 0-conf — credit mid-range tips after a short
+  double-spend verification window instead of waiting for a block.
+  Validated end-to-end against live network double-spends. On by default.
+- **bch**: high-value confirmation ceiling (`always_confirm_above_sats`) —
+  tips above the ceiling always wait for a confirmation, since DSProof
+  alone is insufficient at high value.
+
+### BREAKING
+
+- **rules**: removed per-rule `min_confirmations`. Confirmation behavior
+  is now governed globally by the `bch` value tiers above.
+
 ## v0.6.0 (2026-06-04)
 
 ### Feat

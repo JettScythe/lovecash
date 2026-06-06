@@ -114,7 +114,6 @@ async def _init(config: str) -> None:
             {
                 "name": "intense",
                 "min_sats": 50000,
-                "min_confirmations": 1,
                 "action": "Vibrate",
                 "strength": max_strength,
                 "duration_s": min(20, max_duration),
