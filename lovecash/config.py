@@ -91,6 +91,8 @@ class BchConfig(BaseModel):
     servers: list[ElectrumServer] = Field(
         default_factory=lambda: [
             ElectrumServer(host="fulcrum.jettscythe.xyz", port=50002, ssl=True),
+            ElectrumServer(host="cashnode.bch.ninja", port=50002, ssl=True),
+            ElectrumServer(host="blackie.c3-soft.com", port=50002, ssl=True),
         ]
     )
     zeroconf_max_sats: int = 100_000
