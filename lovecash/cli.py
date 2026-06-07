@@ -4,6 +4,7 @@ import logging
 import typer
 import yaml
 from anyio import Path
+from httpx import AsyncClient
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -13,7 +14,6 @@ from lovecash.bch.derive import XpubDeriver, XpubError
 from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.payment import build_uri, qr_png
 from lovecash.config import Settings
-from lovecash.core.orchestrator import Orchestrator
 from lovecash.server.app import create_app
 
 app = typer.Typer(
@@ -79,7 +79,7 @@ async def _init(config: str) -> None:
     )
     host_relay = typer.confirm("Enable the OBS overlay relay?", default=True)
 
-    cfg = {
+    cfg: dict[str, dict | list[dict]] = {
         "limits": {
             "max_strength": max_strength,
             "max_duration_s": max_duration,
@@ -91,10 +91,10 @@ async def _init(config: str) -> None:
             "derivation_branch": 0,
             "gap_limit": 20,
             "rotate_on_payment": True,
-            "electrum_host": "fulcrum.jettscythe.xyz",
-            "electrum_port": 50002,
-            "electrum_ssl": True,
             "zeroconf_max_sats": 100000,
+            "servers": [
+                {"host": "fulcrum.jettscythe.xyz", "port": 50002, "use_ssl": True}
+            ],
         },
         "server": {
             "enabled": host_relay,
@@ -161,26 +161,25 @@ async def _doctor(config: str) -> None:
         table.add_row("xpub", f"[red]{exc}[/]")
 
     # 2. Electrum reachability
-    try:
-        c = ElectrumClient(
-            settings.bch.electrum_host,
-            settings.bch.electrum_port,
-            settings.bch.electrum_ssl,
-        )
-        await asyncio.wait_for(c.connect(), timeout=8)
-        await c.call("server.ping")
-        await c.close()
-        table.add_row("Electrum server", "[green]reachable[/]")
-    except Exception as exc:
-        table.add_row("Electrum server", f"[red]unreachable: {exc}[/]")
+    for server in settings.bch.server_pool():
+        try:
+            c = ElectrumClient(
+                server.host,
+                server.port,
+                server.ssl,
+            )
+            await asyncio.wait_for(c.connect(), timeout=8)
+            await c.call("server.ping")
+            await c.close()
+            table.add_row(f"Electrum server {server.host}", "[green]reachable[/]")
+        except Exception as exc:
+            table.add_row("Electrum server", f"[red]unreachable: {exc}[/]")
 
     # 3. Lovense local API + toy online status
     try:
-        import httpx
-
         scheme = "https" if settings.lovense.use_https else "http"
         url = f"{scheme}://{settings.lovense.host}:{settings.lovense.port}"
-        async with httpx.AsyncClient(verify=False, timeout=4) as hc:
+        async with AsyncClient(verify=False, timeout=4) as hc:
             resp = await hc.get(f"{url}/GetToys")
         data = resp.json().get("data", {})
         online = [t for t in data.values() if t.get("status") == 1]
@@ -197,35 +196,6 @@ async def _doctor(config: str) -> None:
         )
 
     console.print(table)
-
-
-@app.command()
-def run(
-    config: str = typer.Option("config.yaml", "--config", "-c"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-    skip_check: bool = typer.Option(False, "--skip-check"),
-) -> None:
-    """Run the local bridge."""
-    _setup_logging(verbose)
-    asyncio.run(_run(config, skip_check))
-
-
-async def _run(config: str, skip_check: bool) -> None:
-    if not await Path(config).exists():
-        console.print("[red]No config found.[/] Run [bold]lovecash init[/] first.")
-        raise typer.Exit(code=1)
-
-    if not skip_check:
-        await _doctor(config)  # already async — just await it
-
-    settings = Settings.from_yaml(config)
-    orch = Orchestrator(settings)  # built unconditionally — fixes the bug
-
-    try:
-        await orch.run()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        console.print("[bold red]Panic stop — shutting down.[/]")
-        await orch.shutdown()
 
 
 @app.command()
@@ -275,7 +245,3 @@ def scripthash(address: str) -> None:
     """Print the Electrum scripthash for an address (debugging)."""
 
     console.print(to_scripthash(address))
-
-
-if __name__ == "__main__":
-    app()

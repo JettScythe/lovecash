@@ -14,6 +14,7 @@ dependencies = [
   "rich>=13.8",
   "segno>=1.6",             # pure-python QR, native PNG/SVG, no PIL
   "hdwallet>=2.2,<3",
+  "gp-oracle",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,9 @@ packages = ["lovecash"]
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+gp-oracle = { git = "https://github.com/jettscythe/gp-oracle.git" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

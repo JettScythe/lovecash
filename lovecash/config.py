@@ -2,7 +2,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lovecash.models import TipRule
@@ -74,15 +74,26 @@ class ElectrumServer(BaseModel):
     ssl: bool = True
 
 
+class PricingConfig(BaseModel):
+    enabled: bool = True
+    oracle: str = "USD_BCH"  # maps to gp_oracle.OracleId
+    always_confirm_above_usd: float = 500.0
+    zeroconf_max_usd: float | None = None  # optional USD version of the floor
+    max_staleness_seconds: float = 180.0
+    refresh_seconds: float = 61.0
+    verify_signature: bool = True
+
+
 class BchConfig(BaseModel):
     xpub: str
     derivation_branch: int = 0
     gap_limit: int = 20
     rotate_on_payment: bool = True
-    electrum_host: str = "fulcrum.jettscythe.xyz"
-    electrum_port: int = 50002
-    electrum_ssl: bool = True
-    servers: list[ElectrumServer] = []  # optional failover pool
+    servers: list[ElectrumServer] = Field(
+        default_factory=lambda: [
+            ElectrumServer(host="fulcrum.jettscythe.xyz", port=50002, ssl=True),
+        ]
+    )
     zeroconf_max_sats: int = 100_000
     always_confirm_above_sats: int = 5_000_000
     heartbeat_seconds: float = 15.0
@@ -90,14 +101,16 @@ class BchConfig(BaseModel):
     reconnect_max_seconds: float = 60.0
     dsproof_enabled: bool = True
     dsproof_window_seconds: float = 5.0
+    pricing: PricingConfig = PricingConfig()
+
+    @model_validator(mode="after")
+    def _require_servers(self) -> "BchConfig":
+        if not self.servers:
+            raise ValueError("bch.servers must contain at least one server")
+        return self
 
     def server_pool(self) -> list[ElectrumServer]:
-        primary = ElectrumServer(
-            host=self.electrum_host,
-            port=self.electrum_port,
-            ssl=self.electrum_ssl,
-        )
-        return [primary, *self.servers]
+        return list(self.servers)
 
 
 class ServerConfig(BaseModel):
