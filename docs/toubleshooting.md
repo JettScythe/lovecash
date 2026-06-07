@@ -20,7 +20,10 @@ bch:
     - host: fulcrum.jettscythe.xyz
       port: 50002
       use_ssl: true
-    - host: bch.imaginary.cash
+    - host: "cashnode.bch.ninja"
+      port: 50002
+      use_ssl: true
+    - host: "blackie.c3-soft.com"
       port: 50002
       use_ssl: true
 ```
