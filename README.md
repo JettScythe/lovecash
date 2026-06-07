@@ -122,13 +122,12 @@ body, and confirm Ctrl-C stops it mid-buzz before you trust it.
 |---|---|
 | lovecash init | Interactive setup wizard |
 | lovecash doctor | Preflight checks: xPub, node, toy |
-| lovecash run | Local bridge (watcher + toy), no overlay |
 | lovecash serve | Bridge plus OBS overlay relay |
 | lovecash qr | Save a tipping QR to a file |
 | lovecash scripthash | Print an address's Electrum scripthash (debug) |
 
-Common flags:`-c/--config` to point at a config file,`-v/--verbose`
-for debug logging,`--skip-check` on `run` to skip the doctor preflight.
+Common flags: `-c/--config` to point at a config file, `-v/--verbose`
+for debug logging
 
 ## HTTP endpoints (relay)
 
