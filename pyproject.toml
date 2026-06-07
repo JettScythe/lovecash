@@ -42,6 +42,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["lovecash"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"lovecash/config.template.yaml" = "lovecash/config.template.yaml"
+
 [tool.uv]
 package = true
 
@@ -138,5 +141,5 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 # The ecdsa lib has no type stubs and spams warnings; silence just it.
 [[tool.mypy.overrides]]
-module = ["ecdsa.*", "hdwallet.*", "segno.*"]
+module = ["ecdsa.*", "hdwallet.*", "segno.*", "gp-oracle"]
 ignore_missing_imports = true

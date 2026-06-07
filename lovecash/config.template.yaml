@@ -1,0 +1,93 @@
+# Edit any value here, then run `lovecash doctor` to verify.
+
+limits:
+  # Hard caps on toy commands. These always win over rules — a rule
+  # asking for more is clamped to these.
+  max_strength: {{ max_strength }} # 0-20, your intensity ceiling
+  max_duration_s: {{ max_duration_s }} # longest a single tip can run
+  min_seconds_between_commands: 0.5  # rate limit; drops tip-spam
+
+  # How concurrent tips are handled when several arrive at once.
+  playback: queue # queue | override
+                                  #   queue: tips play in sequence, in full
+                                  #   override: newest tip interrupts current
+  max_queue_seconds: 30 # if the backlog exceeds this, trim it
+  trim_strategy: compress # how to trim an overlong queue:
+                                  #   compress: shrink durations, keep all
+                                  #   drop_oldest: drop the oldest queued
+                                  #   drop_newest: reject the incoming tip
+  min_compressed_duration_s: 1.0    # compress never shrinks below this
+
+lovense:
+  host: "127.0.0.1" # the Lovense Connect app's address
+  port: 30010
+  use_https: true
+  {{ toys }}
+
+  # Single toy: leave `toys` out and the first connected toy is used.
+  # Multiple toys: list each with its id (from `lovecash doctor`) and
+  # optional per-toy limit overrides, then target rules with `toy:`.
+  # toys:
+  #   - toy_id: "428ecdba..."
+  #     max_strength: 15
+  #   - toy_id: "9f2c1a..."
+
+bch:
+  # Your wallet's xpub (Master Public Key). PUBLIC key only — lovecash
+  # derives receiving addresses and can never spend. Never an xprv/seed.
+  xpub: "{{ xpub }}"
+  derivation_branch: 0 # 0 = external/receive chain (standard)
+  gap_limit: 20 # unused addresses watched ahead of the last used
+  rotate_on_payment: true # show a fresh address after each tip (privacy)
+
+  # --- How tips are credited: the safety tiers ---
+  # At/below zeroconf_max_sats:           credited instantly.
+  # Between the thresholds, dsproof on:   short double-spend check, then credit.
+  # At/above EITHER ceiling (sats or USD, whichever is lower): wait for a block.
+  # Any detected double-spend, any value: wait for a block.
+  zeroconf_max_sats: 100000 # ~instant tier ceiling (in satoshis)
+  always_confirm_above_sats: 100000000  # 1 BCH: always wait for a block above
+                                        # this, regardless of price. A hard,
+                                        # dependency-free safety ceiling.
+
+  # Double-spend proof verification (lets mid-range tips credit in seconds
+  # instead of waiting ~10 min for a block). Requires a DSProof-capable
+  # Electrum server (the defaults below are). Falls back to waiting for a
+  # confirmation if unavailable.
+  dsproof_enabled: true
+  dsproof_window_seconds: 5.0 # how long to watch for a double-spend proof
+
+  # Electrum/Fulcrum servers, tried in order with failover. At least one
+  # required. All defaults below support DSProof.
+  servers:
+    - host: "fulcrum.jettscythe.xyz"
+      port: 50002
+      use_ssl: true
+
+  # Connection health / reconnection tuning. Defaults are sane; rarely
+  # need changing.
+  heartbeat_seconds: 15.0 # detect a silently-dead connection
+  reconnect_min_seconds: 1.0
+  reconnect_max_seconds: 60.0
+
+  # Optional: think in dollars instead of sats. When enabled, the USD
+  # ceiling and the sats ceiling above BOTH apply — whichever is lower
+  # (in sats terms) wins. Uses the General Protocols price oracle; if the
+  # oracle is unavailable, the sats ceiling alone applies (safe fallback).
+  pricing:
+    enabled: true
+    always_confirm_above_usd: 500 # wait for a block above this dollar value
+    zeroconf_max_usd: null # optional USD version of the instant floor
+    refresh_seconds: 60 # how often to refresh the price
+    max_staleness_seconds: 180 # older than this -> fall back to sats
+    verify_signature: true # verify the oracle's signed price locally
+
+server:
+  # The OBS overlay relay. Off here means run `lovecash run` (no overlay).
+  enabled: {{ relay_enabled }}
+  bind_host: "127.0.0.1" # use 0.0.0.0 only WITH a relay_token set
+  bind_port: 8080
+  relay_token: null # required if bind_host is public; protects
+                                  # the /panic and /resume control endpoints
+
+{{ rules }}
