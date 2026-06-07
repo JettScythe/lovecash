@@ -129,6 +129,7 @@ def test_oracle_never_loosens_past_sats_net():
         pricing=PricingConfig(enabled=True, always_confirm_above_usd=50),
     )
     src = PaymentSource(cfg)
+    assert src._price_feed is not None
     src._price_feed._price = 5.0  # absurdly low -> $50 = 1B sats
     src._price_feed._fetched_at = time.monotonic()
     # min(1B, 1M) == 1M: the net wins, oracle cannot loosen.

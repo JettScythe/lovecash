@@ -76,7 +76,6 @@ class ElectrumServer(BaseModel):
 
 class PricingConfig(BaseModel):
     enabled: bool = True
-    oracle: str = "USD_BCH"  # maps to gp_oracle.OracleId
     always_confirm_above_usd: float = 500.0
     zeroconf_max_usd: float | None = None  # optional USD version of the floor
     max_staleness_seconds: float = 180.0
