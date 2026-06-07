@@ -317,12 +317,11 @@ class PaymentSource(TriggerSource):
         # more than configured).
         return min(oracle_sats, sats_floor)
 
-
-async def close(self) -> None:
-    self._stopped = True
-    if self._price_feed is not None:
-        await self._price_feed.stop()
-    for task in self._verify_tasks:
-        task.cancel()
-    if self._client:
-        await self._client.close()
+    async def close(self) -> None:
+        self._stopped = True
+        if self._price_feed is not None:
+            await self._price_feed.stop()
+        for task in self._verify_tasks:
+            task.cancel()
+        if self._client:
+            await self._client.close()
