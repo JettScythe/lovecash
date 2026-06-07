@@ -9,15 +9,23 @@ e.g. `uv run lovecash run -v`.
 
 ### "Electrum server: unreachable"
 
-lovecash can't reach the blockchain server.
+lovecash can't reach the blockchain server(s).
 
 - Check your internet connection.
 - The default server may be down. Try a different one in `config.yaml`:
 
 ```yaml
 bch:
-  electrum_host: fulcrum.jettscythe.xyz
-  electrum_port: 50002
+  servers:
+    - host: fulcrum.jettscythe.xyz
+      port: 50002
+      use_ssl: true
+    - host: "cashnode.bch.ninja"
+      port: 50002
+      use_ssl: true
+    - host: "blackie.c3-soft.com"
+      port: 50002
+      use_ssl: true
 ```
 
 ### "Lovense Connect: not found"

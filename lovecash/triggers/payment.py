@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
+from lovecash.bch.pricing import PriceFeed
 from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import BchConfig
 from lovecash.triggers.base import EmitFn, TriggerSource
@@ -44,6 +45,7 @@ class PaymentSource(TriggerSource):
         self._verifying: set[str] = set()
         self._verify_tasks: set[asyncio.Task] = set()
         self._verifier_factory = verifier_factory
+        self._price_feed = PriceFeed(cfg.pricing) if cfg.pricing.enabled else None
 
     @property
     def source_id(self) -> str:
@@ -114,6 +116,12 @@ class PaymentSource(TriggerSource):
                 await client.subscribe_scripthash(sh)
 
     async def run(self, emit: EmitFn) -> None:
+        if self._price_feed is not None:
+            # Fire-and-forget; failures degrade to sats fallback, never block.
+            try:
+                await self._price_feed.start()
+            except Exception as exc:
+                log.warning("Price feed failed to start: %s", exc)
         delay = self._cfg.reconnect_min_seconds
         while not self._stopped:
             ok = False
@@ -228,7 +236,7 @@ class PaymentSource(TriggerSource):
         confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
 
         # Instant tier: too small to be worth attacking.
-        if confirmations >= 1 or amount_sats <= self._cfg.zeroconf_max_sats:
+        if confirmations >= 1 or amount_sats <= self._effective_zeroconf_sats():
             self._seen.add(txid)
             await self._emit_trigger(
                 txid, amount_sats, confirmations, memo, emit, index
@@ -236,7 +244,7 @@ class PaymentSource(TriggerSource):
             return
 
         # High-value ceiling: DSProof is not enough; always wait for a block.
-        if amount_sats >= self._cfg.always_confirm_above_sats:
+        if amount_sats >= self._effective_ceiling_sats():
             await self._announce_tip(
                 txid, "confirming", {"amount_sats": amount_sats, "reason": "high_value"}
             )
@@ -284,8 +292,35 @@ class PaymentSource(TriggerSource):
             window_seconds=self._cfg.dsproof_window_seconds,
         )
 
+    def _effective_ceiling_sats(self) -> int:
+        sats_net = self._cfg.always_confirm_above_sats
+        if self._price_feed is None:
+            return sats_net
+        oracle_sats = self._price_feed.usd_to_sats(
+            self._cfg.pricing.always_confirm_above_usd
+        )
+        if oracle_sats is None:  # stale / down / unverified
+            return sats_net
+        return min(oracle_sats, sats_net)  # oracle may only TIGHTEN
+
+    def _effective_zeroconf_sats(self) -> int:
+        sats_floor = self._cfg.zeroconf_max_sats
+        if self._price_feed is None or self._cfg.pricing.zeroconf_max_usd is None:
+            return sats_floor
+        oracle_sats = self._price_feed.usd_to_sats(self._cfg.pricing.zeroconf_max_usd)
+        if oracle_sats is None:
+            return sats_floor
+        # The instant-floor's safe direction is the opposite: a higher
+        # price means a USD floor maps to FEWER sats, so instant-credit
+        # covers less — that's safe. Use the oracle value directly here,
+        # but never let it EXCEED the sats floor (which would instant-credit
+        # more than configured).
+        return min(oracle_sats, sats_floor)
+
     async def close(self) -> None:
         self._stopped = True
+        if self._price_feed is not None:
+            await self._price_feed.stop()
         for task in self._verify_tasks:
             task.cancel()
         if self._client:
