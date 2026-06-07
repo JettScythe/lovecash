@@ -46,7 +46,7 @@ packages = ["lovecash"]
 package = true
 
 [tool.uv.sources]
-gp-oracle = { git = "https://github.com/jettscythe/gp-oracle.git" }
+gp-oracle = { git = "https://github.com/jettscythe/gp-oracle.git", rev = "251039fb7a8413268921370060941114a1b6a5c3" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

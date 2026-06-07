@@ -3,7 +3,7 @@ import contextlib
 import logging
 import time
 
-from gp_oracle import OracleClient, OracleId, verify_message_signature
+from gp_oracle import get_bch_usd_price
 
 from lovecash.config import PricingConfig
 
@@ -19,7 +19,6 @@ class PriceFeed:
 
     def __init__(self, cfg: PricingConfig) -> None:
         self._cfg = cfg
-        self._oracle = OracleId[cfg.oracle]
         self._price: float | None = None
         self._fetched_at = 0.0
         self._task: asyncio.Task | None = None
@@ -28,15 +27,7 @@ class PriceFeed:
     def _fetch_sync(self) -> float | None:
         """Blocking fetch; runs in a thread. Returns a verified price or None."""
         try:
-            with OracleClient() as client:
-                if self._cfg.verify_signature:
-                    msg = client.latest_message(self._oracle)
-                    if not verify_message_signature(
-                        msg.message, msg.signature, msg.public_key
-                    ):
-                        log.error("Oracle signature INVALID -> price rejected")
-                        return None
-                return float(client.latest_price(self._oracle).decimal_value)
+            return get_bch_usd_price()
         except Exception as exc:
             log.warning("Price fetch failed: %s", exc)
             return None
