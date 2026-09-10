@@ -39,6 +39,16 @@ goal 50,000, deadline ~2 months out).
    the bar should jump to 15,000. The receipt NFT (category
    `4b0fc714…f4e1`) should appear in Cashonize's token list.
 
+## Result (2026-09-10): PASSED
+
+Cashonize (chipnet wallet) paired via the raw wiz:// link, signed, and
+broadcast. Pot moved 10,000 → 10,700 sats on a 700-sat pledge; receipt
+NFT commitment byte-exact (pkh ++ le64). Caveats observed: the signing
+prompt shows the covenant input as a plain script spend (no contract
+metadata crosses the relay — expected); pairing is one-shot per page
+load; Cashonize web on macOS needed the raw URI paste, not the QR text
+form.
+
 ## What to report
 
 - Pairing: did the QR scan/paste work, any namespace or method errors?

@@ -100,8 +100,13 @@ Build: artifact `goal_show.json` compiles via cashc 0.13.2
   `pledge_ui.js` → 1.1MB esbuild bundle committed at
   `lovecash/server/ui/static/pledge.bundle.js` (rebuild after every
   cashc recompile — artifact is inlined).
-- **Manual gate before shipping to viewers:** real Cashonize pairing —
-  namespace/method assumptions (`bch_signTransaction`, account format,
-  placeholder P2PKH filling, broadcast semantics) are unverified without
-  a physical wallet + WC Cloud project id. WC pairing is in-memory
-  (page refresh = re-pair, deliberate).
+- **Manual gate: PASSED 2026-09-10 with real Cashonize on chipnet.**
+  Pairing → sign → broadcast → covenant enforcement all confirmed;
+  pledge tx 8acacaf6…c9b2 grew the pot 10,000→10,700 with a
+  byte-exact receipt commitment (pkh ++ le64(700)). Bugs found only by
+  this live test: init crashed decoding the P2SH32 pot as P2PKH;
+  Node Buffer in browser code; dummy provider hardcoded mainnet
+  (rejected bchtest outputs); qrUri (QR-only encoding) shown as paste
+  text; zombie relay process serving stale bundle with wrong MIME;
+  Fulcrum include_tokens filter hiding token UTXOs. All fixed and
+  regression-tested same day.
