@@ -15,7 +15,7 @@ import { stringify } from '@bitauth/libauth';
 import { buildPledgeTx } from './pledge_tx.mjs';
 import artifact from '../goal_show.json';
 
-const CHAIN = 'bch:bitcoincash';
+let CHAIN = 'bch:bitcoincash'; // overridden from /api/goal_pot wc_chain
 const EXPLORER = 'https://blockchair.com/bitcoin-cash/transaction/';
 
 function el(tag, className, text) {
@@ -40,6 +40,7 @@ window.LovecashPledge = {
       return; // relay trouble: leave the read-only bar alone
     }
     if (!info.configured || !info.wc_project_id) return; // read-only panel
+    if (info.wc_chain) CHAIN = info.wc_chain;
     const mount = panelEl.querySelector('#pot-pledge-mount');
     if (!mount) return;
 

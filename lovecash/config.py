@@ -137,6 +137,17 @@ class GoalShowConfig(BaseModel):
     goal_sats: int = Field(ge=1)
     deadline: int = Field(ge=0)  # covenant deadline (block height/time)
     performer_pkh: str = ""  # 40-hex hash160 — needed to rebuild the covenant client-side
+    # WalletConnect chain id for pairing. Default derived from the pot
+    # address prefix; override for chipnet (wallets disagree on whether
+    # chipnet is its own chain id or shares bchtest — verify on pairing).
+    wc_chain: str | None = None
+
+    @property
+    def resolved_wc_chain(self) -> str:
+        if self.wc_chain:
+            return self.wc_chain
+        prefix = self.address.split(":", 1)[0].lower()
+        return "bch:bitcoincash" if prefix == "bitcoincash" else "bch:bchtest"
 
 
 class ServerConfig(BaseModel):
