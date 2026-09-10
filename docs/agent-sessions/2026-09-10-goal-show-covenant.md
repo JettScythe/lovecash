@@ -55,9 +55,13 @@ Build: artifact `goal_show.json` compiles via cashc 0.13.2
 
 - **Chipnet pass required before mainnet** — mock VM ≠ consensus. Deploy
   + pledge + claim + refund on chipnet with real wallets is the next gate.
-- **lovecash integration not started**: watcher-side pledge detection,
-  overlay goal bar from pot balance, `/tip` pledge-mode tx building
-  (client-side, viewer wallet signs) remain open.
+- **lovecash integration (round 2, same day):** shipped — `goal_show`
+  config, watcher pot subscription (outside the tip pipeline), relay
+  `goal_pot` broadcast, overlay goal bar tracks the pot, `/api/status`
+  exposes it, `contracts/address.mjs` derives covenant addresses, and
+  cashaddr learned P2SH32/token-aware P2SH32 (cross-checked against
+  cashscript-derived vectors). 154 Python tests pass. **Open:** `/tip`
+  pledge mode (client-side covenant tx building, viewer wallet signs).
 - Byte-order: `category` constructor param takes raw serialized order
   (reversed display hex) — tooling must handle this or deployments will
   silently target the wrong category.
