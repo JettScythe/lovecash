@@ -41,11 +41,16 @@ function toRelaySourceOutput(so) {
 }
 
 // libauth decodeCashAddress returns an error STRING on failure.
-export function decodeAddr(address) {
+export function decodeAnyAddr(address) {
   const d = decodeCashAddress(address);
   if (typeof d === 'string') throw new Error(`invalid cashaddr: ${d}`);
-  if (!d.payload || d.payload.length !== 20) throw new Error('pledge needs a 20-byte (P2PKH) address');
   return d; // { payload, prefix, type }
+}
+
+export function decodeAddr(address) {
+  const d = decodeAnyAddr(address);
+  if (!d.payload || d.payload.length !== 20) throw new Error('pledge needs a 20-byte (P2PKH) address');
+  return d;
 }
 
 export function toTokenAddress(address) {

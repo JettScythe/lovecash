@@ -15,7 +15,7 @@
 import { initiateDappRelay } from '@wizardconnect/core';
 import { DappConnectionManager } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
-import { buildPledgeTx, decodeAddr } from './pledge_tx.mjs';
+import { buildPledgeTx, decodeAnyAddr } from './pledge_tx.mjs';
 import artifact from '../goal_show.json';
 
 const EXPLORER = 'https://blockchair.com/bitcoin-cash/transaction/';
@@ -48,7 +48,7 @@ window.LovecashPledge = {
     const mount = panelEl.querySelector('#pot-pledge-mount');
     if (!mount) return;
     // The covenant address tells us which network this show lives on.
-    const netPrefix = decodeAddr(info.address).prefix;
+    const netPrefix = decodeAnyAddr(info.address).prefix;
 
     const hint = panelEl.querySelector('#pot-hint');
     if (hint) {
