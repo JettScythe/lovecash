@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from decimal import Decimal
 
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
@@ -41,8 +42,16 @@ class PaymentSource(TriggerSource):
         self._deriver: XpubDeriver = XpubDeriver(cfg.xpub, cfg.derivation_branch)
         self._next_index = 0
         self._sh_to_index: dict[str, int] = {}
-        self._seen: set[str] = set()
+        # FIFO-bounded dedup of credited txids. The cap only matters past
+        # ~200k tips in one process lifetime; trimming warns loudly.
+        self._seen: dict[str, None] = {}
         self._verifying: set[str] = set()
+        # txid -> scripthash for tips announced "confirming". Keeps the
+        # tip's address watched (even after it rotates out of the address
+        # window or the connection re-establishes) until the block lands,
+        # and stops repeat announcements / repeat verification runs.
+        self._pending_conf: dict[str, str] = {}
+        self._pending_addrs: dict[str, int] = {}
         self._verify_tasks: set[asyncio.Task] = set()
         self._verifier_factory = verifier_factory
         self._price_feed = PriceFeed(cfg.pricing) if cfg.pricing.enabled else None
@@ -108,6 +117,11 @@ class PaymentSource(TriggerSource):
             sh = self._deriver.scripthash(i)
             self._sh_to_index[sh] = i
             await client.subscribe_scripthash(sh)
+        # Tips still waiting on a confirmation keep their address watched
+        # even after it rotated out of the window or we reconnected.
+        for sh, i in self._pending_addrs.items():
+            self._sh_to_index[sh] = i
+            await client.subscribe_scripthash(sh)
 
     async def _extend_window(self) -> None:
         client = self._require_client()
@@ -166,27 +180,63 @@ class PaymentSource(TriggerSource):
             await self._on_address(self.current_address(), self._next_index)
         try:
             while not self._stopped:
-                await client.next_notification()
-                await self._scan_all(emit)
+                notif = await client.next_notification()
+                # A scripthash notification carries the scripthash that
+                # changed — scan just it. Anything unrecognized falls
+                # back to a full scan.
+                params = notif.get("params") or []
+                sh = params[0] if params and isinstance(params[0], str) else None
+                if sh is not None and sh in self._sh_to_index:
+                    await self._scan_one(sh, emit)
+                else:
+                    await self._scan_all(emit)
         finally:
             await client.close()
         return True
 
-    def _scripthashes(self) -> list[tuple[int | None, str]]:
-        return [(i, sh) for sh, i in self._sh_to_index.items()]
+    def _mark_seen(self, txid: str) -> None:
+        self._seen[txid] = None
+        if len(self._seen) > 200_000:
+            evicted = next(iter(self._seen))
+            del self._seen[evicted]
+            log.warning("seen-set full — evicted oldest txid %s", evicted[:12])
+
+    def _mark_pending(self, txid: str, sh: str, index: int | None) -> None:
+        self._pending_conf[txid] = sh
+        if index is not None:
+            self._pending_addrs[sh] = index
+
+    def _clear_pending(self, txid: str) -> None:
+        sh = self._pending_conf.pop(txid, None)
+        if sh is not None and sh not in self._pending_conf.values():
+            self._pending_addrs.pop(sh, None)
+
+    async def _scan_one(self, sh: str, emit) -> None:
+        client = self._require_client()
+        index = self._sh_to_index.get(sh)
+        history = await client.call("blockchain.scripthash.get_history", sh) or []
+        # A pending tx that vanished from the mempool was double-spent or
+        # evicted — nothing left to credit; stop watching it.
+        live = {item["tx_hash"] for item in history}
+        for txid, psh in list(self._pending_conf.items()):
+            if psh == sh and txid not in live:
+                log.info("Pending tip %s vanished from mempool", txid[:12])
+                self._clear_pending(txid)
+        for item in history:
+            txid = item["tx_hash"]
+            # Pending tips are NOT skipped: their address only rescans
+            # when its status changes, and _process_tx credits them the
+            # moment the confirmation lands.
+            if txid in self._seen or txid in self._verifying:
+                continue
+            try:
+                await self._process_tx(txid, item.get("height", 0), emit, index, sh)
+            except Exception:
+                log.exception("process_tx failed for %s", txid)
 
     async def _scan_all(self, emit) -> None:
-        client = self._require_client()
-        for index, sh in self._scripthashes():
-            history = await client.call("blockchain.scripthash.get_history", sh)
-            for item in history or []:
-                txid = item["tx_hash"]
-                if txid in self._seen or txid in self._verifying:
-                    continue
-                try:
-                    await self._process_tx(txid, item.get("height", 0), emit, index)
-                except Exception:
-                    log.exception("process_tx failed for %s", txid)
+        for sh in list(self._sh_to_index):
+            await self._scan_one(sh, emit)
 
     async def _announce_tip(self, tip_id: str, status: str, extra: dict) -> None:
         if self._on_tip_status is not None:
@@ -206,7 +256,8 @@ class PaymentSource(TriggerSource):
             )
             for a in addrs:
                 if a.split(":")[-1] in ours:
-                    amount_sats += round(vout["value"] * 100_000_000)
+                    # str() first: JSON floats must not become money math.
+                    amount_sats += int(Decimal(str(vout["value"])) * 100_000_000)
                     break
             if spk.get("type") == "nulldata":
                 memo = spk.get("asm")
@@ -231,51 +282,66 @@ class PaymentSource(TriggerSource):
                 await self._on_address(self.current_address(), self._next_index)
                 log.info("Rotated overlay to index %d", self._next_index)
 
-    async def _process_tx(self, txid, height, emit, index) -> None:
+    async def _process_tx(self, txid, height, emit, index, sh) -> None:
         client = self._require_client()
         tx = await client.call("blockchain.transaction.get", txid, True)
         amount_sats, memo = self._sum_to_us(tx)
         if amount_sats <= 0:
-            self._seen.add(txid)
+            self._mark_seen(txid)
             return
         confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
 
-        # Instant tier: too small to be worth attacking.
+        # Instant tier: confirmed, or too small to be worth attacking.
         if confirmations >= 1 or amount_sats <= self._effective_zeroconf_sats():
-            self._seen.add(txid)
+            self._mark_seen(txid)
+            self._clear_pending(txid)
             await self._emit_trigger(
                 txid, amount_sats, confirmations, memo, emit, index
             )
             return
 
+        # Everything below announces "confirming" once, then stays
+        # pending until the block lands (see _pending_conf).
+        if txid in self._pending_conf:
+            return
+
         # High-value ceiling: DSProof is not enough; always wait for a block.
         if amount_sats >= self._effective_ceiling_sats():
+            self._mark_pending(txid, sh, index)
             await self._announce_tip(
                 txid, "confirming", {"amount_sats": amount_sats, "reason": "high_value"}
             )
-            return  # left un-seen -> credited when the block confirms it
+            return
 
-        # Mid-range: DSProof verification window.
+        # Mid-range without DSProof: straight to waiting for a block.
         if not self._cfg.dsproof_enabled:
+            self._mark_pending(txid, sh, index)
             await self._announce_tip(txid, "confirming", {"amount_sats": amount_sats})
             return
+
+        # Mid-range: DSProof verification window.
         if txid in self._verifying:
             return
         self._verifying.add(txid)
         task = asyncio.create_task(
-            self._verify_then_emit(txid, tx, amount_sats, memo, emit, index)
+            self._verify_then_emit(txid, tx, amount_sats, memo, emit, index, sh)
         )
         self._verify_tasks.add(task)
         task.add_done_callback(self._verify_tasks.discard)
 
-    async def _verify_then_emit(self, txid, tx, amount_sats, memo, emit, index) -> None:
+    async def _verify_then_emit(
+        self, txid, tx, amount_sats, memo, emit, index, sh
+    ) -> None:
         try:
             verifier = (self._verifier_factory or self._make_verifier)()
             outcome = await verifier.verify(txid, tx)
             if outcome is Outcome.CREDIT:
-                self._seen.add(txid)
+                self._mark_seen(txid)
+                self._clear_pending(txid)
                 await self._emit_trigger(txid, amount_sats, 0, memo, emit, index)
             else:
+                # Refused once: wait for the block, don't verify again.
+                self._mark_pending(txid, sh, index)
                 await self._announce_tip(
                     txid, "confirming", {"amount_sats": amount_sats}
                 )

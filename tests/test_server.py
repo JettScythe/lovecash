@@ -89,7 +89,7 @@ def test_control_routes_refuse_dns_rebinding_host(monkeypatch):
 
 
 def test_control_routes_token_still_enforced_and_sufficient(monkeypatch):
-    cfg = ServerConfig(bind_host="127.0.0.1", relay_token="s3cret")
+    cfg = ServerConfig(bind_host="127.0.0.1", relay_token="s3cret")  # noqa: S106
     with _control_client(monkeypatch, cfg) as client:
         assert client.post("/panic").status_code == 401
         # A valid token is enough even from a cross-site-looking request:
