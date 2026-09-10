@@ -49,8 +49,8 @@ def test_public_bind_without_token_refuses():
         create_app(cfg)
 
 
-def _control_client(monkeypatch, server_cfg: ServerConfig):
-    """TestClient with the network-running orchestrator stubbed out."""
+def _app_client(monkeypatch, server_cfg: ServerConfig):
+    """TestClient over a fully-built app with the network stubbed out."""
     import asyncio
 
     from fastapi.testclient import TestClient
@@ -71,27 +71,62 @@ def _control_client(monkeypatch, server_cfg: ServerConfig):
     return TestClient(create_app(cfg), base_url="http://127.0.0.1:8080")
 
 
+def test_pages_serve(monkeypatch):
+    with _app_client(monkeypatch, ServerConfig()) as client:
+        for path in ("/overlay", "/dashboard", "/tip"):
+            resp = client.get(path)
+            assert resp.status_code == 200, path
+            assert "<!DOCTYPE html>" in resp.text
+        assert "ALERTS" in client.get("/overlay").text
+        assert "PANIC STOP" in client.get("/dashboard").text
+        assert "Tip with Bitcoin Cash" in client.get("/tip").text
+
+
+def test_overlay_injects_alert_config(monkeypatch):
+    cfg = ServerConfig(
+        alerts=AlertConfig(goal_sats=250_000, sound=False, accent="#00ffcc")
+    )
+    with _app_client(monkeypatch, cfg) as client:
+        html = client.get("/overlay").text
+        assert '"goal_sats": 250000' in html
+        assert '"sound": false' in html
+        assert "--accent: #00ffcc" in html
+
+
+def test_qr_endpoints_accept_message(monkeypatch):
+    with _app_client(monkeypatch, ServerConfig()) as client:
+        resp = client.get("/qr.png", params={"amount": 0.001, "message": "hi"})
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        uri = client.get("/uri", params={"amount": 0.001, "message": "hi there"})
+        assert uri.status_code == 200
+        body = uri.json()["uri"]
+        assert "amount=0.001" in body
+        assert "message=hi%20there" in body
+        assert body.startswith("bitcoincash:")
+
+
 def test_control_routes_allow_local_script(monkeypatch):
-    with _control_client(monkeypatch, ServerConfig()) as client:
+    with _app_client(monkeypatch, ServerConfig()) as client:
         assert client.post("/panic").status_code == 200
         assert client.post("/resume").status_code == 200
 
 
 def test_control_routes_refuse_cross_site_browser_posts(monkeypatch):
-    with _control_client(monkeypatch, ServerConfig()) as client:
+    with _app_client(monkeypatch, ServerConfig()) as client:
         resp = client.post("/resume", headers={"Sec-Fetch-Site": "cross-site"})
         assert resp.status_code == 403
 
 
 def test_control_routes_refuse_dns_rebinding_host(monkeypatch):
-    with _control_client(monkeypatch, ServerConfig()) as client:
+    with _app_client(monkeypatch, ServerConfig()) as client:
         resp = client.post("/resume", headers={"Host": "attacker.example.com"})
         assert resp.status_code == 403
 
 
 def test_control_routes_token_still_enforced_and_sufficient(monkeypatch):
     cfg = ServerConfig(bind_host="127.0.0.1", relay_token="s3cret")  # noqa: S106
-    with _control_client(monkeypatch, cfg) as client:
+    with _app_client(monkeypatch, cfg) as client:
         assert client.post("/panic").status_code == 401
         # A valid token is enough even from a cross-site-looking request:
         # the shared secret is the stronger proof.

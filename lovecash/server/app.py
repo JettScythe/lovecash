@@ -15,7 +15,7 @@ from lovecash.bch.payment import build_uri, qr_png, qr_svg
 from lovecash.config import Settings
 from lovecash.core.orchestrator import Orchestrator
 from lovecash.server.relay import RelayHub
-from lovecash.server.templates import OVERLAY_HTML
+from lovecash.server.ui import DASHBOARD_HTML, TIP_HTML, render_overlay
 from lovecash.triggers.events import TriggerEvent
 
 log = logging.getLogger("lovecash.server")
@@ -213,35 +213,55 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/overlay", response_class=HTMLResponse)
     async def overlay_page() -> str:
         """Add THIS url as a Browser Source in OBS. That's the whole setup."""
-        return OVERLAY_HTML
+        return render_overlay(alerts)
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard_page() -> str:
+        """Performer control panel: status, stats, toys, panic/resume."""
+        return DASHBOARD_HTML
+
+    @app.get("/tip", response_class=HTMLResponse)
+    async def tip_page() -> str:
+        """Public viewer tipping page: amount picker + live QR."""
+        return TIP_HTML
 
     @app.get("/qr.png")
     async def qr_png_ep(
         amount: float | None = Query(default=None, ge=0),
         scale: int = Query(default=8, ge=1, le=20),
+        message: str | None = Query(default=None, max_length=200),
     ) -> Response:
         uri = build_uri(
             orchestrator.current_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
+            message=message,
         )
         return Response(content=qr_png(uri, scale), media_type="image/png")
 
     @app.get("/qr.svg")
-    async def qr_svg_ep(amount: float | None = Query(default=None, ge=0)):
+    async def qr_svg_ep(
+        amount: float | None = Query(default=None, ge=0),
+        message: str | None = Query(default=None, max_length=200),
+    ):
         uri = build_uri(
             orchestrator.current_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
+            message=message,
         )
         return Response(content=qr_svg(uri), media_type="image/svg+xml")
 
     @app.get("/uri")
-    async def uri_ep(amount: float | None = Query(default=None, ge=0)) -> dict:
+    async def uri_ep(
+        amount: float | None = Query(default=None, ge=0),
+        message: str | None = Query(default=None, max_length=200),
+    ) -> dict:
         return {
             "uri": build_uri(
                 orchestrator.current_address(),
                 amount_bch=Decimal(str(amount)) if amount else None,
+                message=message,
             )
         }
 

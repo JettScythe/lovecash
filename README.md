@@ -70,7 +70,21 @@ This is the entire setup a performer needs:
 4. Size: 1920 x 1080. Done.
 
 The overlay shows a persistent tip QR (bottom-right) and pops an animated
-alert on every incoming tip. Viewers scan the QR with any BCH wallet.
+alert on every incoming tip — bigger tips get bigger alerts, with a chime
+(and confetti for the whales). Viewers scan the QR with any BCH wallet,
+or open the `/tip` page to pick an amount and add a memo.
+
+Two more pages come with the relay:
+
+- `http://localhost:8080/dashboard` — your control panel: connection
+  status, session totals, toy battery/online state, recent tips, and a
+  big panic-stop button.
+- `http://localhost:8080/tip` — the viewer-facing tipping page (presets,
+  memo field, live QR, "your tip landed" feedback).
+
+Alert content is performer-configurable (`server.alerts` in config.yaml):
+amounts, memos, sound, a per-alert minimum, a goal progress bar, and the
+accent color.
 
 ## Configuring your tip rules
 
@@ -135,16 +149,25 @@ for debug logging
 | URL | Purpose | Auth |
 |---|---|---|
 | /overlay | OBS browser source | none |
+| /dashboard | Performer control panel | none* |
+| /tip | Viewer tipping page | none |
 | /overlay-ws | Live tip websocket | none |
-| /qr.png?amount=0.001 | Tip QR for a fixed amount | none |
+| /qr.png?amount=0.001&message=hi | Tip QR (fixed amount/memo) | none |
 | /qr.svg | Vector tip QR | none |
 | /uri?amount=0.001 | Raw BIP21 URI as JSON | none |
+| /api/status | Dashboard snapshot as JSON | none |
+| /api/toys | Toy online/battery status | none |
 | /panic | Stop and block all commands | token |
 | /resume | Clear the panic stop | token |
 | /health | Liveness and stop state | none |
 
 Read-only endpoints are unauthenticated by design — they only expose a
-public receiving address. Control endpoints require the relay token.
+public receiving address. Control endpoints require the relay token; with
+no token set (loopback only), they refuse cross-site browser requests so
+a webpage you visit can never clear your panic stop.
+
+*The dashboard page itself is unauthenticated, but its panic/resume
+buttons go through the control endpoints and their rules.
 
 ## How it works
 

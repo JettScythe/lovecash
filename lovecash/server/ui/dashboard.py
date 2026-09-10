@@ -1,0 +1,472 @@
+"""Self-contained performer dashboard page (served at /dashboard).
+
+Zero-build: inline CSS + vanilla JS, no external resources except /qr.png.
+Consumes the API contract of lovecash.server.app (/api/status, /api/toys,
+/panic, /resume) and follows the overlay conventions in templates.py.
+Safety rules: memos are attacker-controlled on-chain text, so they are only
+ever rendered via textContent; control POSTs prompt for the relay token once
+on a 401 and reuse it from localStorage afterwards.
+"""
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lovecash — performer dashboard</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0b0b0e; color: #f2f2f5; min-height: 100vh;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 20px;
+    background: rgba(11, 11, 14, 0.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .brand {
+    font-size: 22px; font-weight: 800; color: #ff5c8a;
+    margin-right: auto; white-space: nowrap;
+  }
+  .brand .sub {
+    color: rgba(255, 255, 255, 0.55); font-weight: 600;
+    font-size: 14px; margin-left: 10px;
+  }
+  .uptime {
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.75); font-size: 15px;
+  }
+  .badge { padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 14px; }
+  .badge.ok { background: rgba(92, 255, 157, 0.14); color: #5cff9d; }
+  .badge.warn { background: rgba(255, 211, 92, 0.14); color: #ffd35c; }
+  .badge.down { background: rgba(255, 107, 107, 0.14); color: #ff6b6b; }
+  #panic {
+    font-size: 20px; font-weight: 800; letter-spacing: 0.5px;
+    color: #fff; background: linear-gradient(135deg, #ff3b5c, #c81e3a);
+    border: none; border-radius: 12px; padding: 16px 30px; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(255, 59, 92, 0.45);
+  }
+  #panic:active { transform: scale(0.97); }
+  #panic.resume {
+    background: linear-gradient(135deg, #ffd35c, #ff9a3c); color: #201400;
+    box-shadow: 0 6px 24px rgba(255, 211, 92, 0.4);
+  }
+  main {
+    max-width: 1100px; margin: 0 auto; padding: 20px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .banner {
+    padding: 14px 18px; border-radius: 12px;
+    font-weight: 700; text-align: center; font-size: 16px;
+  }
+  #stopped-banner {
+    background: rgba(255, 211, 92, 0.12); color: #ffd35c;
+    border: 1px solid rgba(255, 211, 92, 0.4);
+  }
+  #relay-banner {
+    background: rgba(255, 107, 107, 0.12); color: #ff6b6b;
+    border: 1px solid rgba(255, 107, 107, 0.4);
+  }
+  .hidden { display: none !important; }
+  .card {
+    background: rgba(20, 20, 24, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px; padding: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .card h2 {
+    margin: 0 0 14px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: 1.2px; color: rgba(255, 255, 255, 0.5);
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+  }
+  .stat-label {
+    font-size: 13px; text-transform: uppercase;
+    letter-spacing: 1.2px; color: rgba(255, 255, 255, 0.5);
+  }
+  .stat-value {
+    font-size: 30px; font-weight: 800; margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-sub {
+    font-size: 14px; color: rgba(255, 255, 255, 0.55);
+    margin-top: 4px; min-height: 18px;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 14px; align-items: start;
+  }
+  .address {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all; background: rgba(255, 255, 255, 0.05);
+    padding: 12px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 14px;
+  }
+  #address-card { text-align: center; }
+  #address-card .address { text-align: left; }
+  #qr {
+    width: 220px; height: 220px; background: #fff;
+    padding: 10px; border-radius: 10px;
+  }
+  .qr-caption { margin-top: 10px; font-size: 13px; color: rgba(255, 255, 255, 0.55); }
+  .toy {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04); margin-bottom: 8px;
+  }
+  .toy-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .toy-dot.on { background: #5cff9d; box-shadow: 0 0 8px rgba(92, 255, 157, 0.7); }
+  .toy-dot.off { background: rgba(255, 255, 255, 0.25); }
+  .toy-name { font-weight: 600; }
+  .toy-batt {
+    margin-left: auto; color: rgba(255, 255, 255, 0.65);
+    font-variant-numeric: tabular-nums;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; color: rgba(255, 255, 255, 0.45);
+    padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  td {
+    padding: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 15px;
+  }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .memo { max-width: 380px; overflow-wrap: anywhere; color: rgba(255, 255, 255, 0.85); }
+  .status {
+    padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.6);
+  }
+  .status.st-confirming { background: rgba(255, 211, 92, 0.15); color: #ffd35c; }
+  .status.st-queued { background: rgba(92, 168, 255, 0.15); color: #5ca8ff; }
+  .status.st-active { background: rgba(92, 255, 157, 0.15); color: #5cff9d; }
+  .status.st-done { background: rgba(255, 255, 255, 0.07); color: rgba(255, 255, 255, 0.5); }
+  .muted { color: rgba(255, 255, 255, 0.5); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">lovecash<span class="sub">performer dashboard</span></div>
+  <span id="conn-badge" class="badge down">connecting</span>
+  <span id="uptime" class="uptime">--:--:--</span>
+  <button id="panic" type="button">PANIC STOP</button>
+</header>
+<main>
+  <div id="stopped-banner" class="banner hidden">PANIC STOP ACTIVE — toy halted, all further commands blocked</div>
+  <div id="relay-banner" class="banner hidden">Relay unreachable — is lovecash running? Controls will not respond until it is back.</div>
+
+  <section class="stats-grid">
+    <div class="card">
+      <div class="stat-label">Session total</div>
+      <div id="stat-total" class="stat-value">—</div>
+      <div id="stat-total-usd" class="stat-sub"></div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Tips</div>
+      <div id="stat-count" class="stat-value">—</div>
+      <div class="stat-sub"></div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Top tip</div>
+      <div id="stat-top" class="stat-value">—</div>
+      <div id="stat-top-usd" class="stat-sub"></div>
+    </div>
+    <div class="card">
+      <div class="stat-label">BCH / USD</div>
+      <div id="stat-price" class="stat-value">—</div>
+      <div class="stat-sub"></div>
+    </div>
+  </section>
+
+  <div class="columns">
+    <section class="card" id="address-card">
+      <h2>Receive address</h2>
+      <div id="address" class="address">waiting for address…</div>
+      <img id="qr" src="/qr.png" alt="QR code of the current receive address" />
+      <div class="qr-caption">viewers scan this to tip in Bitcoin Cash</div>
+    </section>
+    <section class="card">
+      <h2>Toys</h2>
+      <div id="toys"><div class="muted">loading…</div></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Recent tips</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Amount</th><th>Memo</th><th>Status</th></tr></thead>
+      <tbody id="tips-body"></tbody>
+    </table>
+    <div id="tips-empty" class="muted">no tips yet this session</div>
+  </section>
+</main>
+<script>
+  const connBadge = document.getElementById('conn-badge');
+  const uptimeEl = document.getElementById('uptime');
+  const panicBtn = document.getElementById('panic');
+  const stoppedBanner = document.getElementById('stopped-banner');
+  const relayBanner = document.getElementById('relay-banner');
+  const statTotal = document.getElementById('stat-total');
+  const statTotalUsd = document.getElementById('stat-total-usd');
+  const statCount = document.getElementById('stat-count');
+  const statTop = document.getElementById('stat-top');
+  const statTopUsd = document.getElementById('stat-top-usd');
+  const statPrice = document.getElementById('stat-price');
+  const addrEl = document.getElementById('address');
+  const qrEl = document.getElementById('qr');
+  const toysEl = document.getElementById('toys');
+  const tipsBody = document.getElementById('tips-body');
+  const tipsEmpty = document.getElementById('tips-empty');
+
+  const TOKEN_KEY = 'lovecash_relay_token';
+  let isStopped = false;
+  let lastStartedAt = null;
+  let lastAddress = null;
+
+  function fmtSats(n) {
+    return Number(n || 0).toLocaleString('en-US') + ' sats';
+  }
+  function usdOf(sats, price) {
+    return '$' + (Number(sats || 0) / 1e8 * price).toFixed(2);
+  }
+  function fmtTime(epoch) {
+    return new Date(epoch * 1000).toTimeString().slice(0, 8);
+  }
+  function fmtDuration(secs) {
+    const pad = (x) => String(x).padStart(2, '0');
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = Math.floor(secs % 60);
+    return pad(h) + ':' + pad(m) + ':' + pad(s);
+  }
+
+  function setConnection(state) {
+    let cls = 'down';
+    if (state === 'connected') cls = 'ok';
+    else if (state === 'reconnecting') cls = 'warn';
+    connBadge.className = 'badge ' + cls;
+    connBadge.textContent = state || 'down';
+  }
+
+  function setRelayReachable(ok) {
+    relayBanner.classList.toggle('hidden', ok);
+    if (!ok) {
+      connBadge.className = 'badge down';
+      connBadge.textContent = 'relay unreachable';
+    }
+  }
+
+  function setStopped(stopped) {
+    isStopped = stopped;
+    panicBtn.textContent = stopped ? 'RESUME' : 'PANIC STOP';
+    panicBtn.classList.toggle('resume', stopped);
+    stoppedBanner.classList.toggle('hidden', !stopped);
+  }
+
+  function tokenHeaders() {
+    const t = localStorage.getItem(TOKEN_KEY);
+    return t ? { 'X-Relay-Token': t } : {};
+  }
+
+  async function postControl(path) {
+    return fetch(path, { method: 'POST', headers: tokenHeaders() });
+  }
+
+  async function control(path) {
+    let resp;
+    try {
+      resp = await postControl(path);
+    } catch (e) {
+      setRelayReachable(false);
+      return;
+    }
+    if (resp.status === 401) {
+      const t = prompt('This relay requires a control token. Enter the relay token from your lovecash config:');
+      if (t === null || t === '') return;
+      localStorage.setItem(TOKEN_KEY, t);
+      try {
+        resp = await postControl(path);
+      } catch (e) {
+        setRelayReachable(false);
+        return;
+      }
+      if (resp.status === 401) {
+        localStorage.removeItem(TOKEN_KEY);
+        alert('The relay rejected that token; it was cleared. Check your config and try again.');
+        return;
+      }
+    }
+    if (!resp.ok) {
+      alert('Control request failed (HTTP ' + resp.status + ').');
+      return;
+    }
+    const data = await resp.json();
+    setStopped(!!data.stopped);
+    pollStatus();
+  }
+
+  panicBtn.addEventListener('click', () => {
+    if (isStopped) {
+      if (confirm('Clear the panic stop and allow toy commands again?')) control('/resume');
+    } else {
+      if (confirm('PANIC STOP: halt all toy activity now and block every further command?')) control('/panic');
+    }
+  });
+
+  function renderStats(data) {
+    const stats = data.stats || {};
+    const price = data.price_usd;
+    const total = stats.total_sats || 0;
+    const top = stats.top_sats || 0;
+    statTotal.textContent = fmtSats(total);
+    statTotalUsd.textContent = price != null ? '≈ ' + usdOf(total, price) : '';
+    statCount.textContent = String(stats.count || 0);
+    statTop.textContent = fmtSats(top);
+    statTopUsd.textContent = price != null && top > 0 ? '≈ ' + usdOf(top, price) : '';
+    statPrice.textContent = price != null ? '$' + Number(price).toFixed(2) : '—';
+    lastStartedAt = stats.started_at || null;
+  }
+
+  function renderAddress(addr) {
+    if (!addr || addr === lastAddress) return;
+    lastAddress = addr;
+    addrEl.textContent = addr;
+    qrEl.src = '/qr.png?ts=' + Date.now();
+  }
+
+  function renderTips(recent) {
+    tipsBody.replaceChildren();
+    tipsEmpty.classList.toggle('hidden', recent.length > 0);
+    for (const tip of recent) {
+      const tr = document.createElement('tr');
+
+      const tdTime = document.createElement('td');
+      tdTime.className = 'num';
+      tdTime.textContent = fmtTime(tip.at);
+
+      const tdAmt = document.createElement('td');
+      tdAmt.className = 'num';
+      tdAmt.textContent = fmtSats(tip.amount_sats)
+        + (tip.usd != null ? ' ($' + Number(tip.usd).toFixed(2) + ')' : '');
+
+      const tdMemo = document.createElement('td');
+      tdMemo.className = 'memo';
+      tdMemo.textContent = tip.memo || '';
+
+      const tdStatus = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = 'status st-' + (tip.status || 'done');
+      badge.textContent = tip.status || 'unknown';
+      tdStatus.appendChild(badge);
+
+      tr.appendChild(tdTime);
+      tr.appendChild(tdAmt);
+      tr.appendChild(tdMemo);
+      tr.appendChild(tdStatus);
+      tipsBody.appendChild(tr);
+    }
+  }
+
+  function toyNote(text) {
+    const note = document.createElement('div');
+    note.className = 'muted';
+    note.textContent = text;
+    toysEl.appendChild(note);
+  }
+
+  function renderToys(data) {
+    toysEl.replaceChildren();
+    if (!data.ok) {
+      toyNote('Lovense Connect app not reachable');
+      return;
+    }
+    if (!data.toys || data.toys.length === 0) {
+      toyNote('no toys reported by Lovense Connect');
+      return;
+    }
+    for (const toy of data.toys) {
+      const row = document.createElement('div');
+      row.className = 'toy';
+
+      const dot = document.createElement('span');
+      dot.className = 'toy-dot ' + (toy.online ? 'on' : 'off');
+
+      const name = document.createElement('span');
+      name.className = 'toy-name';
+      name.textContent = toy.name || 'Unknown toy';
+
+      const state = document.createElement('span');
+      state.className = 'muted';
+      state.textContent = toy.online ? 'online' : 'offline';
+
+      const batt = document.createElement('span');
+      batt.className = 'toy-batt';
+      if (toy.battery != null) batt.textContent = toy.battery + '%';
+
+      row.appendChild(dot);
+      row.appendChild(name);
+      row.appendChild(state);
+      row.appendChild(batt);
+      toysEl.appendChild(row);
+    }
+  }
+
+  async function pollStatus() {
+    let data;
+    try {
+      const resp = await fetch('/api/status');
+      if (!resp.ok) throw new Error('http ' + resp.status);
+      data = await resp.json();
+    } catch (e) {
+      setRelayReachable(false);
+      return;
+    }
+    setRelayReachable(true);
+    setConnection(data.connection);
+    setStopped(!!data.stopped);
+    renderStats(data);
+    renderAddress(data.address);
+    renderTips((data.stats && data.stats.recent) || []);
+  }
+
+  async function pollToys() {
+    let data;
+    try {
+      const resp = await fetch('/api/toys');
+      if (!resp.ok) throw new Error('http ' + resp.status);
+      data = await resp.json();
+    } catch (e) {
+      toysEl.replaceChildren();
+      toyNote('relay unreachable — cannot fetch toys');
+      return;
+    }
+    renderToys(data);
+  }
+
+  function tickUptime() {
+    if (!lastStartedAt) {
+      uptimeEl.textContent = '--:--:--';
+      return;
+    }
+    const elapsed = Math.max(0, Date.now() / 1000 - lastStartedAt);
+    uptimeEl.textContent = 'up ' + fmtDuration(elapsed);
+  }
+
+  pollStatus();
+  pollToys();
+  setInterval(pollStatus, 2000);
+  setInterval(pollToys, 2000);
+  setInterval(tickUptime, 1000);
+  tickUptime();
+</script>
+</body>
+</html>
+"""
