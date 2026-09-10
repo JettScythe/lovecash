@@ -242,6 +242,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 {
                     "balance_sats": orchestrator.pot_balance,
                     "goal_sats": settings.goal_show.goal_sats,
+                    "address": settings.goal_show.address,
                 }
                 if settings.goal_show
                 else None

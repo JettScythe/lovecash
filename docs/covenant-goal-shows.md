@@ -93,6 +93,31 @@ The covenant enforces abandonment protection, not honesty about demand:
   an ordinary confirmed payment — existing pipeline, unchanged.
 - **Open:** the `/tip` page pledge mode: builds the covenant transaction
   client-side (viewer's wallet signs) instead of a plain BIP21 QR.
+  Done so far: the `/tip` page shows the live pot progress bar, pot
+  address, and the refund promise; wallet pledging itself is blocked on
+  the transport decision below.
+
+## Wallet transport (decision record, 2026-09-10)
+
+Viewer pledging needs the browser to build a covenant tx and a wallet to
+sign it. Surveyed options:
+
+- **CashConnect** (`cashconnect` npm, v0.0.25): WalletConnect v2 with
+  CashRPC methods, Cashonize reference integration. Problems: the
+  dapp-integration API is undocumented ("TODO" in its own readme), it
+  needs a WalletConnect Cloud project ID (centralized relay), and
+  adoption is early. Building the viewer flow on it now is building on
+  mud.
+- **Raw-tx handoff**: no common wallet imports unsigned covenant txs
+  with dapp-chosen inputs; the builder needs the viewer's UTXOs, which
+  no read-only channel provides. Dead end without wallet comms.
+
+**Decision:** defer signing integration until a concrete wallet target
+(Paytaca vs Cashonize) is confirmed by performer demand. The pledge-tx
+builder (cashscript `TransactionBuilder`, proven on chipnet in
+`contracts/chipnet_e2e.mjs`) is the reusable core either way — the
+transport is a thin layer over it. When picked, CashConnect is the
+default candidate; re-verify its dapp-side API maturity first.
 
 ## Dependencies to evaluate at implementation time
 
