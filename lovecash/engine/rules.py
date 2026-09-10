@@ -28,12 +28,12 @@ class RulesEngine:
                 best[r.toy] = r
         best_token: dict[str | None, TokenRule] = {}
         for receipt in getattr(event, "tokens", []):
-            for r in self._token_rules:
-                if not r.matches(receipt):
+            for tr in self._token_rules:
+                if not tr.matches(receipt):
                     continue
-                cur = best_token.get(r.toy)
-                if cur is None or r.min_amount > cur.min_amount:
-                    best_token[r.toy] = r
+                tcur = best_token.get(tr.toy)
+                if tcur is None or tr.min_amount > tcur.min_amount:
+                    best_token[tr.toy] = tr
         out = [(r.to_command(), r.toy) for r in best.values()]
         out += [(r.to_command(), r.toy) for r in best_token.values()]
         if out:

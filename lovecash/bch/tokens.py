@@ -7,10 +7,15 @@ path — callers treat it as "no tokens seen" and log.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 PREFIX_TOKEN = 0xEF
 
-_CAPABILITY = {0: "none", 1: "mutable", 2: "minting"}
+_CAPABILITY: dict[int, Literal["none", "mutable", "minting"]] = {
+    0: "none",
+    1: "mutable",
+    2: "minting",
+}
 
 
 class TokenParseError(ValueError):
@@ -21,7 +26,7 @@ class TokenParseError(ValueError):
 class TokenData:
     category: str  # 64-hex, display (big-endian) byte order
     amount: int = 0  # fungible base units
-    nft_capability: str | None = None  # "none" | "mutable" | "minting"
+    nft_capability: Literal["none", "mutable", "minting"] | None = None
     commitment: bytes = b""
 
 
