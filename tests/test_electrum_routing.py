@@ -40,3 +40,27 @@ def test_dsproof_for_unwatched_txid_is_ignored():
         }
     )
     assert c._notifications.empty()  # not queued, not crashed
+
+
+def test_tls_verify_builds_verifying_context():
+    import ssl
+
+    c = ElectrumClient("h", 50002, tls_verify=True)
+    ctx = c._ssl_context()
+    assert ctx.check_hostname
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_tls_verify_off_warns_and_disables():
+    import ssl
+
+    c = ElectrumClient("h", 50002, tls_verify=False)
+    ctx = c._ssl_context()
+    assert not ctx.check_hostname
+    assert ctx.verify_mode == ssl.CERT_NONE
+
+
+def test_server_config_verifies_tls_by_default():
+    from lovecash.config import ElectrumServer
+
+    assert ElectrumServer(host="h").tls_verify is True

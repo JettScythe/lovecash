@@ -72,6 +72,10 @@ class ElectrumServer(BaseModel):
     host: str
     port: int = 50002
     ssl: bool = True
+    # Verify the server's TLS certificate. On by default: without it a
+    # network MITM can inject fake tips. Disable only for a server you
+    # trust that uses a self-signed certificate.
+    tls_verify: bool = True
 
 
 class PricingConfig(BaseModel):

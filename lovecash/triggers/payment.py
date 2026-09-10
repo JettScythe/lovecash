@@ -85,8 +85,11 @@ class PaymentSource(TriggerSource):
         addrs = {self._deriver.address(i) for i in self._sh_to_index.values()}
         return {a.split(":")[-1] for a in addrs}
 
-    def _default_factory(self, host, port, ssl) -> ElectrumClient:
-        return ElectrumClient(host, port, ssl, heartbeat_s=self._cfg.heartbeat_seconds)
+    def _default_factory(self, host, port, ssl, tls_verify) -> ElectrumClient:
+        return ElectrumClient(
+            host, port, ssl, heartbeat_s=self._cfg.heartbeat_seconds,
+            tls_verify=tls_verify,
+        )
 
     async def _status(self, state: ConnectionState) -> None:
         if self._on_status:
@@ -144,7 +147,9 @@ class PaymentSource(TriggerSource):
 
     async def _session(self, emit: EmitFn) -> bool:
         server = self._next_server()
-        self._client = self._client_factory(server.host, server.port, server.ssl)
+        self._client = self._client_factory(
+            server.host, server.port, server.ssl, server.tls_verify
+        )
         client = self._client
         await client.connect()
 

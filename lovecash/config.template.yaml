@@ -59,16 +59,22 @@ bch:
 
   # Electrum/Fulcrum servers, tried in order with failover. At least one
   # required. All defaults below support DSProof.
+  # tls_verify checks the server's TLS certificate (on by default) —
+  # without it, someone on your network could inject fake tips. Only set
+  # false for a trusted server with a self-signed certificate.
   servers:
     - host: "fulcrum.jettscythe.xyz"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
     - host: "cashnode.bch.ninja"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
     - host: "blackie.c3-soft.com"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
 
   # Connection health / reconnection tuning. Defaults are sane; rarely
   # need changing.

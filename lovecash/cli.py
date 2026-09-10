@@ -276,6 +276,7 @@ async def _doctor(config: str) -> None:
                 server.host,
                 server.port,
                 server.ssl,
+                tls_verify=server.tls_verify,
             )
             await asyncio.wait_for(c.connect(), timeout=8)
             await c.call("server.ping")

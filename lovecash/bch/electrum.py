@@ -13,11 +13,17 @@ class ElectrumClient:
     """Tiny async JSON-RPC client for the Electrum/Fulcrum protocol."""
 
     def __init__(
-        self, host: str, port: int, use_ssl: bool = True, heartbeat_s=30.0
+        self,
+        host: str,
+        port: int,
+        use_ssl: bool = True,
+        heartbeat_s=30.0,
+        tls_verify: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._ssl = use_ssl
+        self._tls_verify = tls_verify
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._id = 0
@@ -39,15 +45,21 @@ class ElectrumClient:
     def unwatch_dsproof(self, txid: str) -> None:
         self._dsproof_events.pop(txid, None)
 
+    def _ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.create_default_context()
+        if not self._tls_verify:
+            # Self-signed server the operator explicitly trusts. Without
+            # verification, a network MITM could inject fake tips.
+            log.warning("TLS certificate verification DISABLED for %s", self._host)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
     async def connect(self) -> None:
         # Guard against starting a second reader on a stale connection.
         if self._reader_task and not self._reader_task.done():
             await self.close()
-        ctx = None
-        if self._ssl:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+        ctx = self._ssl_context() if self._ssl else None
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, ssl=ctx
         )
