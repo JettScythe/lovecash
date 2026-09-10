@@ -16,3 +16,5 @@ Pick the guide that matches you:
 - [FAQ](faq.md) — common questions, money, privacy, legality.
 - [CashTokens Research](cashtokens-research.md) — design research for
   token tipping, liquidity pools, and covenant goal shows (future work).
+- [Covenant Goal Shows](covenant-goal-shows.md) — design for
+  all-or-nothing tip goals enforced by a smart contract (Phase 3).
