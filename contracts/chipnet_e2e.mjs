@@ -114,12 +114,19 @@ async function genesis(changeFrom, inst) {
 const newContract = (goalSats, deadline, categoryHex) =>
   new Contract(artifact, [performer.pkh, goalSats, BigInt(deadline), hexToBin(categoryHex).reverse()], { provider });
 
-// --deploy: ONE fresh long-lived pot for manual wallet testing, then print
-// everything the dapp config needs and exit.
-if (process.argv.includes('--deploy')) {
+// --deploy / --deploy-refund-test: ONE fresh long-lived pot for manual
+// wallet testing, then print everything the dapp config needs and exit.
+// refund-test variant: unreachable goal, deadline ~1000 blocks in the PAST
+// so both pledge (locktime 0 < deadline) and refund (locktime = deadline)
+// are exercisable right away.
+const deployMode = process.argv.includes('--deploy') || process.argv.includes('--deploy-refund-test');
+if (deployMode) {
+  const refundTest = process.argv.includes('--deploy-refund-test');
   const height = await provider.getBlockHeight();
+  const goalSats = refundTest ? 500_000n : 50_000n;
+  const deadline = refundTest ? height - 1000 : height + 100_000;
   const gen = await genesis(null, 'deploy');
-  const contract = newContract(50_000n, height + 100_000, gen.category);
+  const contract = newContract(goalSats, deadline, gen.category);
   const seedTxid = await new TransactionBuilder({ provider })
     .addInput(gen.mintNft, performer.sig.unlockP2PKH())
     .addInput(gen.change, performer.sig.unlockP2PKH())
@@ -132,6 +139,8 @@ if (process.argv.includes('--deploy')) {
     categoryDisplayHex: gen.category,
     categoryRawHex: binToHex(hexToBin(gen.category).reverse()),
     performerPkh: binToHex(performer.pkh),
+    goalSats: Number(goalSats),
+    deadline,
     potTokenAddress: contract.tokenAddress,
     potAddress: contract.address,
     seedTxid,

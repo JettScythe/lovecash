@@ -105,6 +105,9 @@ class Orchestrator:
     async def address_utxos(self, address: str) -> list[dict]:
         return await self._payment_source.address_utxos(address)
 
+    async def current_height(self) -> int:
+        return await self._payment_source.current_height()
+
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state
         for obs in self._status_observers:

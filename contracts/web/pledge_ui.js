@@ -15,7 +15,8 @@
 import { initiateDappRelay } from '@wizardconnect/core';
 import { DappConnectionManager } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
-import { buildPledgeTx, decodeAnyAddr } from './pledge_tx.mjs';
+import { buildPledgeTx, decodeAddr, toTokenAddress } from './pledge_tx.mjs';
+import { buildRefundTx, parseReceiptCommitment } from './refund_tx.mjs';
 import artifact from '../goal_show.json';
 
 const EXPLORER = 'https://blockchair.com/bitcoin-cash/transaction/';
@@ -92,11 +93,101 @@ window.LovecashPledge = {
     mount.appendChild(status);
     mount.appendChild(result);
 
+    // Refund section: the viewer's receipt NFTs of this show's category.
+    const receiptsLabel = el('div', 'section-label hidden', 'Your pledge receipts (refunds)');
+    const receiptsList = el('div');
+    const receiptsWhy = el('p', 'hint hidden', '');
+    receiptsWhy.style.textAlign = 'left';
+    mount.appendChild(receiptsLabel);
+    mount.appendChild(receiptsList);
+    mount.appendChild(receiptsWhy);
+
     const say = (msg) => { status.textContent = msg; };
     const sayResult = (msg) => { result.textContent = msg; };
 
     let dappMgr = null;
     let viewerAddress = null;
+
+    function receiptAmount(u) {
+      try { return parseReceiptCommitment(u.token.nft.commitment).amount; } catch { return null; }
+    }
+
+    async function renderReceipts() {
+      receiptsList.textContent = '';
+      receiptsLabel.classList.add('hidden');
+      receiptsWhy.classList.add('hidden');
+      if (!viewerAddress) return;
+      const [potInfo, utxoInfo] = await Promise.all([
+        fetchJson('/api/goal_pot'),
+        fetchJson('/api/utxos?address=' + encodeURIComponent(toTokenAddress(viewerAddress))),
+      ]);
+      if (!potInfo.configured || !potInfo.utxo || !utxoInfo.ok) return;
+      const category = potInfo.utxo.token.category;
+      const receipts = utxoInfo.utxos.filter((u) =>
+        u.token && u.token.nft && u.token.nft.capability === 'none' &&
+        u.token.category === category && receiptAmount(u) !== null);
+      if (!receipts.length) return;
+      receiptsLabel.classList.remove('hidden');
+
+      const open = potInfo.current_height >= potInfo.deadline && potInfo.balance_sats < potInfo.goal_sats;
+      receiptsWhy.textContent = open
+        ? 'Refunds are open — the deadline passed below goal. Each refund is its own transaction.'
+        : 'Refunds open after the deadline if the goal is missed. Until then your receipt is just a ticket.';
+      receiptsWhy.classList.remove('hidden');
+
+      for (const receipt of receipts) {
+        const amount = receiptAmount(receipt);
+        const row = el('div', 'token-row');
+        row.appendChild(el('div', 'tk-min', receipt.value + '-sat receipt (' + amount + ' sats pledged)'));
+        const btn = el('button', 'btn-primary', open ? 'Refund ' + amount + ' sats' : 'Refund (not open yet)');
+        btn.type = 'button';
+        btn.disabled = !open;
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          sayResult('building refund transaction\u2026');
+          try {
+            // The pot is serialized: ALWAYS rebuild against the freshest pot UTXO.
+            const fresh = await fetchJson('/api/goal_pot');
+            if (!fresh.utxo) throw new Error('pot UTXO not found — show over or pot moved; reload and retry');
+            if (!(fresh.current_height >= fresh.deadline && fresh.balance_sats < fresh.goal_sats)) {
+              throw new Error('refund window closed (goal met or deadline not reached)');
+            }
+            const { request } = await buildRefundTx({
+              artifact,
+              contractParams: {
+                performerPkh: fresh.performer_pkh,
+                goalSats: fresh.goal_sats,
+                deadline: fresh.deadline,
+                categoryDisplayHex: fresh.utxo.token.category,
+              },
+              potUtxo: fresh.utxo,
+              receiptUtxo: receipt,
+              funderAddress: viewerAddress,
+              deadline: fresh.deadline,
+              userPrompt: `Refund ${amount} sats from the goal show`,
+            });
+            sayResult('check your wallet to approve\u2026');
+            const response = await dappMgr.signTransaction(request);
+            if (response.error) throw new Error(response.error);
+            const txid = txidOfHex(response.signedTransaction);
+            result.textContent = '';
+            const link = el('a', null, 'refund broadcast: ' + txid);
+            link.href = EXPLORER + txid;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.style.color = '#ff9a5c';
+            result.appendChild(el('span', null, '\u2705 '));
+            result.appendChild(link);
+            renderReceipts().catch(() => {});
+          } catch (e) {
+            sayResult('refund failed: ' + (e && e.message ? e.message : String(e)) + ' — if the pot moved (another refund landed), retry with a fresh build.');
+            btn.disabled = false;
+          }
+        });
+        row.appendChild(btn);
+        receiptsList.appendChild(row);
+      }
+    }
 
     connectBtn.addEventListener('click', async () => {
       connectBtn.disabled = true;
@@ -132,6 +223,7 @@ window.LovecashPledge = {
             copyBtn.classList.add('hidden');
             pledgeBtn.classList.remove('hidden');
             say('connected: ' + viewerAddress);
+            renderReceipts().catch(() => {});
           } catch (e) {
             say('wallet handshake failed: ' + (e && e.message ? e.message : String(e)));
           }

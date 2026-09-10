@@ -10,6 +10,10 @@ wallets sign plain P2PKH), `claim` pays the performer once the goal is met,
 Viewer pledge flow: browser bundle talks to Cashonize via **WizardConnect** (Nostr relay,
 no WalletConnect project id). After any contract change: `npm run build-web` (docker) then
 `cp contracts/web-dist/pledge.bundle.js lovecash/server/ui/static/pledge.bundle.js`.
+Refunds run through the same bundle: it lists the viewer's receipt NFTs and builds the
+refund tx (both inputs signed by the wallet: covenant placeholders + receipt P2PKH).
+Fee note: receipts below ~571 sats can't cover their own ~1 sat/byte refund fee
+(inputs.length == 2 blocks top-up inputs) — treat that as the practical minimum pledge.
 
 Trust summary: abandonment protection only — the performer can always self-fund a claim
 (equivalent to tipping themselves). Pledgers must verify off-chain that genesis minted

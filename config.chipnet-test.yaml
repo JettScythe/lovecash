@@ -18,8 +18,8 @@ server:
   bind_host: "127.0.0.1"
   bind_port: 8080
 goal_show:
-  address: "bchtest:rvud5m27y2x2hfchame90qu9n9phu2nphuyxsec2gj00u73us2ur2fppezgql"
-  goal_sats: 50000
-  deadline: 422981
+  address: "bchtest:rdc9upuf90av6xxyzyzwmagaun99xtvrlqzs3j50fqay9086sx3j75qsdq3kt"
+  goal_sats: 500000
+  deadline: 321989
   performer_pkh: "3b3c112959f3a374c5a00a22affd722c123653c7"
 rules: []

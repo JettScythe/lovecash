@@ -314,6 +314,11 @@ class PaymentSource(TriggerSource):
         fund the viewer side of a covenant transaction."""
         return await self._listunspent(to_scripthash(address))
 
+    async def current_height(self) -> int:
+        client = self._require_client()
+        hdr = await client.call("blockchain.headers.subscribe")
+        return int(hdr.get("height", 0))
+
     async def _extend_window(self) -> None:
         client = self._require_client()
         top = self._next_index + self._cfg.gap_limit

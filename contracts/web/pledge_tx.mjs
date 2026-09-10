@@ -15,6 +15,7 @@ const le64 = (n) => {
   for (let i = 0; i < 8; i++) { b[i] = Number(v & 0xffn); v >>= 8n; }
   return b;
 };
+export { le64 };
 
 // Mirror of @wizardconnect/core's sourceOutputToRelay (present in
 // dist/protocols/hdwalletv1-serialize.js but NOT exported from the package).
@@ -22,7 +23,7 @@ const le64 = (n) => {
 // value must be plain JSON: hex strings + `<bigint: Xn>` tags. Token
 // category/commitment stay in libauth-native byte order (the wallet parses
 // them back with the same helpers).
-function toRelaySourceOutput(so) {
+export function toRelaySourceOutput(so) {
   const r = {
     outpointTransactionHash: binToHex(so.outpointTransactionHash),
     outpointIndex: so.outpointIndex,
@@ -67,7 +68,7 @@ export function toTokenAddress(address) {
 
 // API wire shape -> cashscript Utxo. Category stays DISPLAY hex here: the
 // SDK feeds it straight to libauth, which owns the display/raw reversal.
-const mapUtxo = (u) => ({
+export const mapUtxo = (u) => ({
   txid: u.tx_hash,
   vout: u.tx_pos,
   satoshis: BigInt(u.value),
