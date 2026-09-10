@@ -1,9 +1,11 @@
 # Session: hardening and cleanup
 
 - Date: 2026-09-09
-- Base branch: main
-- Working branch: agent/hardening-and-cleanup
-- Model(s): kimi-for-coding/k3
+- Base branch: main (phase 1-2) / agent/hardening-and-cleanup (phase 3)
+- Working branch: agent/hardening-and-cleanup (PR #5), then
+  agent/ui-ux-overhaul (stacked on PR #5, not yet pushed)
+- Model(s): kimi-for-coding/k3 (+2 specialist subagents for the
+  dashboard and tip-page HTML)
 
 ## Goal
 
@@ -67,6 +69,17 @@ removed; commitizen stale version field dropped.
 
 ## Notes
 
+- Phase 3 (ui-ux-overhaul branch): AlertConfig + SessionStats backend,
+  /api/status + /api/toys, and three zero-build pages — rewritten
+  /overlay (tiered chime/confetti alerts, goal bar, USD, memo),
+  /dashboard (performer control panel with panic/resume), /tip (viewer
+  tipping page with memo + landed-confirmation heuristic). Dashboard and
+  tip page HTML drafted by specialist subagents against a precise API
+  spec, then reviewed in-tree (textContent-only rendering of on-chain
+  memo text verified by reading both files).
+- Browser behavior of the new pages was NOT runtime-tested (no live
+  relay run); warrant one manual pass: open /dashboard, /tip on a phone,
+  and the overlay in OBS while firing test tips.
 - Assumption: all three default Electrum servers will keep valid certs;
   tls_verify can be set false per server for self-signed hosts.
 - Offline-tip gap FIXED (second half of the session): persisted watcher
