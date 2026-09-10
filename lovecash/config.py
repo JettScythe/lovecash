@@ -40,7 +40,7 @@ class Limits(BaseModel):
     # falls back to dropping oldest.
     min_compressed_duration_s: float = Field(default=1.0, ge=0)
 
-    def for_toy(self, toy: ToyConfig) -> "Limits":
+    def for_toy(self, toy: ToyConfig) -> Limits:
         return self.model_copy(
             update={
                 "max_strength": toy.max_strength
@@ -109,7 +109,7 @@ class BchConfig(BaseModel):
     pricing: PricingConfig = PricingConfig()
 
     @model_validator(mode="after")
-    def _require_servers(self) -> "BchConfig":
+    def _require_servers(self) -> BchConfig:
         if not self.servers:
             raise ValueError("bch.servers must contain at least one server")
         return self
@@ -137,6 +137,6 @@ class Settings(BaseSettings):
     rules: list[TipRule] = []
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Settings":
+    def from_yaml(cls, path: str | Path) -> Settings:
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls.model_validate(data)
