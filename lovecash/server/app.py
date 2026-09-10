@@ -42,6 +42,18 @@ def _apply_in_place(model: BaseModel, new: BaseModel) -> None:
         setattr(model, name, value)
 
 
+def _token_menu(settings: Settings) -> list[dict]:
+    """Public viewer-facing token tip menu: one entry per category, with
+    the lowest accepted amount as the entry price. Category hex is the
+    identity — display names come from rule names, not tickers."""
+    by_cat: dict[str, dict] = {}
+    for r in settings.token_rules:
+        cur = by_cat.get(r.category)
+        if cur is None or r.min_amount < cur["min_amount"]:
+            by_cat[r.category] = {"category": r.category, "min_amount": r.min_amount}
+    return list(by_cat.values())
+
+
 class SessionStats:
     """In-memory tally of credited tips for the overlay and dashboard."""
 
@@ -64,6 +76,7 @@ class SessionStats:
             "amount_sats": event.amount_sats,
             "usd": round(event.amount_sats / 1e8 * usd, 2) if usd else None,
             "memo": event.memo,
+            "tokens": [t.model_dump() for t in event.tokens],
             "status": TipStatus.ACTIVE,
             "at": time.time(),
         }
@@ -107,7 +120,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             return
         price = orchestrator.current_price_usd()
         stats.record_tip(event, price)
-        if event.amount_sats >= alerts.min_sats:
+        if event.amount_sats >= alerts.min_sats or event.tokens:
             usd = round(event.amount_sats / 1e8 * price, 2) if price else None
             await hub.broadcast(
                 {
@@ -118,6 +131,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                         "confirmations": event.confirmations,
                         "usd": usd,
                         "memo": event.memo,
+                        "tokens": [t.model_dump() for t in event.tokens],
                     },
                 }
             )
@@ -203,6 +217,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
             "address": orchestrator.current_tip_address(),
+            "token_menu": _token_menu(settings),
             "price_usd": orchestrator.current_price_usd(),
             "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),

@@ -117,6 +117,10 @@ rules:
 to your`max_strength`. Note that each rule is a list item and must start
 with`-`.
 
+Rules can also match **CashToken tips** (fungible tokens and NFTs living
+on the BCH chain) via `token_rules` — including your own fan token backed
+by a liquidity pool. See [docs/fan-tokens.md](docs/fan-tokens.md).
+
 ## Safety
 
 - Panic stop. Press Ctrl-C while running locally, or POST to`/panic`

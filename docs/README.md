@@ -6,6 +6,8 @@ Pick the guide that matches you:
   your stream. Start here if you're a cam performer.
 - [Tip Rules Guide](tip-rules.md) — design your tip menu: what each tip
   amount does to your toy.
+- [Fan Tokens Guide](fan-tokens.md) — accept CashToken tips, mint your
+  own token, seed a liquidity pool.
 - [Safety Guide](safety.md) — panic stop, limits, and testing safely.
 - [Troubleshooting](troubleshooting.md) — when something doesn't work.
 - [Self-Hosting Guide](self-hosting.md) — run the relay on your own

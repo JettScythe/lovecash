@@ -114,6 +114,21 @@ TIP_HTML = """<!DOCTYPE html>
 
   .hint { margin: 12px 2px 0; font-size: 12px; text-align: center; opacity: 0.55; }
 
+  .token-row {
+    margin-bottom: 12px; padding: 12px; border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04); font-size: 13px;
+  }
+  .token-row .tk-min { font-weight: 700; }
+  .token-row .tk-cat {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px; word-break: break-all; opacity: 0.6; margin-top: 4px;
+  }
+  .token-row .tk-links { margin-top: 8px; display: flex; gap: 12px; }
+  .token-row .tk-links a, .token-row .tk-links button {
+    font-size: 12px; color: #ff9a5c; background: none; border: 0;
+    padding: 0; cursor: pointer; text-decoration: none; font-family: inherit;
+  }
+
   #thanks { text-align: center; padding: 34px 16px; }
   #thanks .burst {
     width: 74px; height: 74px; margin: 0 auto 14px;
@@ -220,6 +235,14 @@ TIP_HTML = """<!DOCTYPE html>
       <p class="hint">Scan with any Bitcoin Cash wallet, or tap the link to open one.</p>
     </section>
 
+    <section id="tokens" class="card hidden">
+      <div class="section-label">Tip with fan tokens</div>
+      <div id="token-list"></div>
+      <p class="hint">Send the token to the same address above from a
+        CashToken wallet (Electron Cash, Paytaca, Cashonize, Zapit). The
+        toy reacts once the transaction confirms.</p>
+    </section>
+
     <section id="thanks" class="card hidden" aria-live="polite">
       <div class="burst">
         <svg viewBox="0 0 24 24" role="img" aria-label="heart">
@@ -310,6 +333,48 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
   var stepsEl = document.getElementById("steps");
   var trackDetailEl = document.getElementById("track-detail");
   var trackTxidEl = document.getElementById("track-txid");
+  var tokensEl = document.getElementById("tokens");
+  var tokenListEl = document.getElementById("token-list");
+
+  function renderTokenMenu(menu) {
+    if (!menu || !menu.length) return;
+    for (var i = 0; i < menu.length; i++) {
+      var t = menu[i];
+      var row = document.createElement("div");
+      row.className = "token-row";
+      var min = document.createElement("div");
+      min.className = "tk-min";
+      min.textContent = "≥ " + fmtSats(t.min_amount) + " token units";
+      var cat = document.createElement("div");
+      cat.className = "tk-cat";
+      cat.textContent = t.category;
+      var links = document.createElement("div");
+      links.className = "tk-links";
+      var swap = document.createElement("a");
+      swap.href = "https://cauldron.quest";
+      swap.target = "_blank";
+      swap.rel = "noopener";
+      swap.textContent = "Get tokens on Cauldron";
+      var copy = document.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copy category ID";
+      (function (hex, btn) {
+        btn.addEventListener("click", function () {
+          function done() { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy category ID"; }, 1500); }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(hex).then(done, done);
+          } else { done(); }
+        });
+      })(t.category, copy);
+      links.appendChild(swap);
+      links.appendChild(copy);
+      row.appendChild(min);
+      row.appendChild(cat);
+      row.appendChild(links);
+      tokenListEl.appendChild(row);
+    }
+    tokensEl.classList.remove("hidden");
+  }
 
   var statusOk = false;
 
@@ -616,6 +681,7 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
       if (!data || !data.address) throw new Error("no address");
       state.address = data.address;
       state.priceUsd = typeof data.price_usd === "number" ? data.price_usd : null;
+      renderTokenMenu(data.token_menu);
       statusOk = true;
       unreachableEl.classList.add("hidden");
       if (thanksEl.classList.contains("hidden")) pickerEl.classList.remove("hidden");
