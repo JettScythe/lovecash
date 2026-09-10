@@ -15,7 +15,7 @@
 import { initiateDappRelay } from '@wizardconnect/core';
 import { DappConnectionManager } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
-import { buildPledgeTx, decodeAddr, toTokenAddress } from './pledge_tx.mjs';
+import { buildPledgeTx, decodeAnyAddr, toTokenAddress } from './pledge_tx.mjs';
 import { buildRefundTx, parseReceiptCommitment } from './refund_tx.mjs';
 import artifact from '../goal_show.json';
 
