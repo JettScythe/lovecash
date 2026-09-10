@@ -41,6 +41,7 @@ class StateStore:
         self.seen: dict[str, None] = {}  # insertion-ordered FIFO
         self.pending_conf: dict[str, str] = {}  # txid -> scripthash
         self.pending_addrs: dict[str, int] = {}  # scripthash -> index
+        self.existed = False
 
     def load(self) -> bool:
         """Populate from disk. Returns True only for a valid, current,
@@ -56,7 +57,8 @@ class StateStore:
             return False
         if data.get("version") != _VERSION or data.get("xpub_tail") != self._xpub_tail:
             log.warning(
-                "State file %s is for a different wallet or version — starting fresh",
+                "State file %s is for a different wallet or version — "
+                "starting fresh",
                 self._path,
             )
             return False
@@ -65,6 +67,7 @@ class StateStore:
         self.pending_addrs = {
             str(k): int(v) for k, v in data.get("pending_addrs", {}).items()
         }
+        self.existed = True
         log.info(
             "Loaded watcher state: %d seen, %d pending confirmation",
             len(self.seen),

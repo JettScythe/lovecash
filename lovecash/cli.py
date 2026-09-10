@@ -51,7 +51,7 @@ async def _detect_toys() -> list[tuple[str, str]]:
 
 
 def _prompt_action(label: str):
-    from lovecash.models import Action
+    from lovecash.lovense.toys import parse_action
 
     while True:
         raw = typer.prompt(
@@ -59,7 +59,7 @@ def _prompt_action(label: str):
             default="Vibrate",
         )
         try:
-            return Action(raw.strip().capitalize())
+            return parse_action(raw)
         except ValueError:
             console.print("[red]Unknown action. Pick one of the listed.[/]")
 
@@ -272,7 +272,7 @@ async def _doctor(config: str) -> None:
         table.add_row("xpub", f"[red]{exc}[/]")
 
     # 2. Electrum reachability
-    for server in settings.bch.servers:
+    for server in settings.bch.server_pool():
         try:
             c = ElectrumClient(
                 server.host,
@@ -305,7 +305,8 @@ async def _doctor(config: str) -> None:
     except Exception:
         table.add_row(
             "Lovense Connect",
-            "[yellow]not found — open the Lovense Connect app and connect your toy[/]",
+            "[yellow]not found — open the Lovense Connect app and connect "
+            "your toy[/]",
         )
 
     console.print(table)
@@ -355,7 +356,8 @@ async def _run(config: str) -> None:
     orch = Orchestrator(settings)
     console.print(
         Panel.fit(
-            "Watching for tips (no overlay).\n[bold]Ctrl-C = panic stop + quit.[/]",
+            "Watching for tips (no overlay).\n"
+            "[bold]Ctrl-C = panic stop + quit.[/]",
             title="lovecash run",
             style="magenta",
         )

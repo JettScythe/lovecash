@@ -67,7 +67,7 @@ async def validate_refusal(c: ElectrumClient, txid: str) -> None:
 
 async def main() -> None:
     s = Settings.from_yaml("config.yaml")
-    srv = s.bch.servers[0]
+    srv = s.bch.server_pool()[0]
     c = ElectrumClient(srv.host, srv.port, srv.ssl, tls_verify=srv.tls_verify)
     await c.connect()
 
@@ -77,7 +77,8 @@ async def main() -> None:
     subscribed_count = 0
 
     print(
-        f"harvesting full mempool from {NODE_URL}, validating refusal via {srv.host}..."
+        f"harvesting full mempool from {NODE_URL}, validating refusal "
+        f"via {srv.host}..."
     )
 
     while True:

@@ -13,13 +13,13 @@ from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import BchConfig
 from lovecash.triggers.base import EmitFn, TriggerSource
 from lovecash.triggers.events import PaymentTrigger
-from lovecash.triggers.status import ConnectionState, TipStatus
+from lovecash.triggers.status import ConnectionState
 
 log = logging.getLogger("lovecash.source.payment")
 
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
 AddressFn = Callable[[str, int], Awaitable[None]]
-TipStatusFn = Callable[[str, TipStatus, dict], Awaitable[None]]
+TipStatusFn = Callable[[str, str, dict], Awaitable[None]]
 
 
 class PaymentSource(TriggerSource):
@@ -50,7 +50,8 @@ class PaymentSource(TriggerSource):
         # on disk — in-memory-only state is how offline tips get missed
         # or, worse, credited twice.
         self._state = StateStore(
-            state_path or default_state_dir() / f"state-{cfg.xpub[-8:]}.json",
+            state_path
+            or default_state_dir() / f"state-{cfg.xpub[-8:]}.json",
             cfg.xpub[-8:],
         )
         self._state_existed = self._state.load()
@@ -106,10 +107,7 @@ class PaymentSource(TriggerSource):
 
     def _default_factory(self, host, port, ssl, tls_verify) -> ElectrumClient:
         return ElectrumClient(
-            host,
-            port,
-            ssl,
-            heartbeat_s=self._cfg.heartbeat_seconds,
+            host, port, ssl, heartbeat_s=self._cfg.heartbeat_seconds,
             tls_verify=tls_verify,
         )
 
@@ -118,7 +116,7 @@ class PaymentSource(TriggerSource):
             await self._on_status(state)
 
     def _next_server(self):
-        pool = self._cfg.servers
+        pool = self._cfg.server_pool()
         s = pool[self._server_idx % len(pool)]
         self._server_idx += 1
         return s
@@ -136,6 +134,13 @@ class PaymentSource(TriggerSource):
             self._sh_to_index.setdefault(sh, i)
         for sh in list(self._sh_to_index):
             await client.subscribe_scripthash(sh)
+
+    def _watch_used_range(self) -> None:
+        """Map every used address below the window (no subscriptions —
+        _subscribe_all covers them). Replay and _sum_to_us both need
+        these present."""
+        for i in range(self._next_index):
+            self._sh_to_index.setdefault(self._deriver.scripthash(i), i)
 
     async def _extend_window(self) -> None:
         client = self._require_client()
@@ -183,11 +188,7 @@ class PaymentSource(TriggerSource):
 
         if not self._primed:
             self._next_index = await self._discover_start_index()
-            # Map every used address below the window (no subscriptions —
-            # _subscribe_all covers them). Replay and _sum_to_us both
-            # need these present.
-            for i in range(self._next_index):
-                self._sh_to_index.setdefault(self._deriver.scripthash(i), i)
+            self._watch_used_range()
             await self._subscribe_all()
             await self._replay_or_seed(emit)
             self._primed = True
@@ -296,7 +297,7 @@ class PaymentSource(TriggerSource):
         for sh in list(self._sh_to_index):
             await self._scan_one(sh, emit)
 
-    async def _announce_tip(self, tip_id: str, status: TipStatus, extra: dict) -> None:
+    async def _announce_tip(self, tip_id: str, status: str, extra: dict) -> None:
         if self._on_tip_status is not None:
             try:
                 await self._on_tip_status(tip_id, status, extra)
@@ -367,18 +368,14 @@ class PaymentSource(TriggerSource):
         if amount_sats >= self._effective_ceiling_sats():
             self._mark_pending(txid, sh, index)
             await self._announce_tip(
-                txid,
-                TipStatus.CONFIRMING,
-                {"amount_sats": amount_sats, "reason": "high_value"},
+                txid, "confirming", {"amount_sats": amount_sats, "reason": "high_value"}
             )
             return
 
         # Mid-range without DSProof: straight to waiting for a block.
         if not self._cfg.dsproof_enabled:
             self._mark_pending(txid, sh, index)
-            await self._announce_tip(
-                txid, TipStatus.CONFIRMING, {"amount_sats": amount_sats}
-            )
+            await self._announce_tip(txid, "confirming", {"amount_sats": amount_sats})
             return
 
         # Mid-range: DSProof verification window.
@@ -405,7 +402,7 @@ class PaymentSource(TriggerSource):
                 # Refused once: wait for the block, don't verify again.
                 self._mark_pending(txid, sh, index)
                 await self._announce_tip(
-                    txid, TipStatus.CONFIRMING, {"amount_sats": amount_sats}
+                    txid, "confirming", {"amount_sats": amount_sats}
                 )
         except Exception:
             log.exception("verify_then_emit failed for %s", txid)

@@ -3,10 +3,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 
-from lovecash.bch.dsproof import Protection, TxFetcher, analyze_protection
+from lovecash.bch.dsproof import Protection, analyze_protection
 
 log = logging.getLogger("lovecash.verify")
 
+TxFetcher = Callable[[str], Awaitable[dict]]
+DsproofGetter = Callable[[str], Awaitable[dict | None]]
 StatusEmit = Callable[[str, str, dict], Awaitable[None]]
 
 

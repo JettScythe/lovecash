@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import ssl
+from collections.abc import AsyncIterator
 from typing import Any
 
 log = logging.getLogger("lovecash.electrum")
@@ -171,6 +172,17 @@ class ElectrumClient:
         if getter in done:
             return getter.result()
         raise ConnectionError("connection dropped while waiting")
+
+    async def notifications(self) -> AsyncIterator[dict]:
+        while True:
+            yield await self._notifications.get()
+
+    def drain_notifications(self) -> None:
+        while not self._notifications.empty():
+            try:
+                self._notifications.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     async def close(self) -> None:
         self._closing = True

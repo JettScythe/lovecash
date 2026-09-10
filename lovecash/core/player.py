@@ -3,8 +3,8 @@ import logging
 from collections import deque
 
 from lovecash.config import Limits, Playback, TrimStrategy
+from lovecash.lovense.protocol import ToyController
 from lovecash.models import ToyCommand
-from lovecash.triggers.status import TipStatus
 
 log = logging.getLogger("lovecash.player")
 
@@ -17,7 +17,9 @@ class CommandPlayer:
     mode fires each command immediately.
     """
 
-    def __init__(self, controller, limits: Limits, on_tip_status=None) -> None:
+    def __init__(
+        self, controller: ToyController, limits: Limits, on_tip_status=None
+    ) -> None:
         self._controller = controller
         self._limits = limits
         self._pending: deque[tuple[ToyCommand, str | None]] = deque()
@@ -39,13 +41,13 @@ class CommandPlayer:
             # Don't claim "active" when the safety gate or a toy error
             # dropped the command — the status stream must not lie.
             if ran:
-                await self._announce(tip_id, TipStatus.ACTIVE, {})
-            await self._announce(tip_id, TipStatus.DONE, {"played": ran})
+                await self._announce(tip_id, "active", {})
+            await self._announce(tip_id, "done", {"played": ran})
             return
         self._enqueue_with_trim(cmd, tip_id)
         await self._announce(
             tip_id,
-            TipStatus.QUEUED,
+            "queued",
             {"position": len(self._pending), "eta_seconds": self._backlog_seconds()},
         )
         self._wakeup.set()
@@ -116,7 +118,7 @@ class CommandPlayer:
             await self._reannounce_positions()
 
             runtime = min(cmd.duration_s, self._limits.max_duration_s)
-            await self._announce(tip_id, TipStatus.ACTIVE, {"duration_s": runtime})
+            await self._announce(tip_id, "active", {"duration_s": runtime})
             try:
                 ran = await self._controller.run(cmd)
                 if ran:
@@ -124,9 +126,9 @@ class CommandPlayer:
             except Exception as exc:
                 log.error("Playback error: %s", exc)
                 ran = False
-            await self._announce(tip_id, TipStatus.DONE, {"played": ran})
+            await self._announce(tip_id, "done", {"played": ran})
 
-    async def _announce(self, tip_id, status: TipStatus, extra) -> None:
+    async def _announce(self, tip_id, status, extra) -> None:
         if self._on_status and tip_id:
             await self._on_status(tip_id, status, extra)
 
@@ -135,7 +137,7 @@ class CommandPlayer:
         for position, (cmd, tip_id) in enumerate(self._pending, start=1):
             eta += min(cmd.duration_s, self._limits.max_duration_s)
             await self._announce(
-                tip_id, TipStatus.QUEUED, {"position": position, "eta_seconds": eta}
+                tip_id, "queued", {"position": position, "eta_seconds": eta}
             )
 
     async def stop(self) -> None:

@@ -17,7 +17,6 @@ from lovecash.core.orchestrator import Orchestrator
 from lovecash.server.relay import RelayHub
 from lovecash.server.ui import DASHBOARD_HTML, TIP_HTML, render_overlay
 from lovecash.triggers.events import TriggerEvent
-from lovecash.triggers.status import TipStatus
 
 log = logging.getLogger("lovecash.server")
 
@@ -46,13 +45,13 @@ class SessionStats:
             "amount_sats": event.amount_sats,
             "usd": round(event.amount_sats / 1e8 * usd, 2) if usd else None,
             "memo": event.memo,
-            "status": TipStatus.ACTIVE,
+            "status": "active",
             "at": time.time(),
         }
         self.recent.appendleft(entry)
         self._by_id[event.txid] = entry
 
-    def record_status(self, tip_id: str, status: TipStatus) -> None:
+    def record_status(self, tip_id: str, status: str) -> None:
         entry = self._by_id.get(tip_id)
         if entry is not None:
             entry["status"] = status
@@ -119,7 +118,7 @@ def create_app(settings: Settings) -> FastAPI:
     async def _on_status(state) -> None:
         await hub.broadcast({"type": "status", "data": {"connection": state}})
 
-    async def _on_tip_status(tip_id: str, status: TipStatus, extra: dict) -> None:
+    async def _on_tip_status(tip_id: str, status: str, extra: dict) -> None:
         stats.record_status(tip_id, status)
         await hub.broadcast(
             {"type": "tip_status", "data": {"id": tip_id, "status": status, **extra}}
@@ -146,9 +145,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.hub = hub
     app.state.stats = stats
 
-    def auth(
-        request: Request, x_relay_token: str | None = Header(default=None)
-    ) -> None:
+    def auth(request: Request, x_relay_token: str | None = Header(default=None)) -> None:
         token = settings.server.relay_token
         if token:
             if x_relay_token != token:
@@ -160,9 +157,7 @@ def create_app(settings: Settings) -> FastAPI:
         # non-loopback Host — refuse both. Local scripts and curl keep
         # working.
         if request.headers.get("sec-fetch-site") == "cross-site":
-            raise HTTPException(
-                status_code=403, detail="cross-site control request refused"
-            )
+            raise HTTPException(status_code=403, detail="cross-site control request refused")
         host = urlsplit(f"//{request.headers.get('host', '')}").hostname or ""
         if host.lower() not in _LOOPBACK:
             raise HTTPException(
@@ -291,7 +286,7 @@ def create_app(settings: Settings) -> FastAPI:
         try:
             while True:
                 await ws.send_text(await q.get())
-        except WebSocketDisconnect, RuntimeError:
+        except (WebSocketDisconnect, RuntimeError):
             pass  # client went away (send on a closed socket: RuntimeError)
         finally:
             hub.unregister(q)

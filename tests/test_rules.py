@@ -1,10 +1,9 @@
 from lovecash.engine.rules import RulesEngine
-from lovecash.models import Action, TipRule
-from lovecash.triggers.events import PaymentTrigger
+from lovecash.models import Action, TipEvent, TipRule
 
 
-def _tip(sats: int, conf: int = 1) -> PaymentTrigger:
-    return PaymentTrigger(source_id="t", txid="x", amount_sats=sats, confirmations=conf)
+def _tip(sats: int, conf: int = 1) -> TipEvent:
+    return TipEvent(txid="x", amount_sats=sats, confirmations=conf)
 
 
 def test_highest_tier_wins():
@@ -27,6 +26,6 @@ def test_highest_tier_wins():
             ),
         ]
     )
-    results = engine.resolve_all(_tip(5000))
-    assert results
-    assert results[0][0].strength == 15
+    cmd = engine.resolve(_tip(5000))
+    assert cmd is not None
+    assert cmd.strength == 15

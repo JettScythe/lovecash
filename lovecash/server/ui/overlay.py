@@ -303,3 +303,7 @@ def render_overlay(alerts: AlertConfig) -> str:
     cfg = json.dumps(alerts.model_dump()).replace("</", "<\\/")
     accent = alerts.accent if alerts.accent.startswith("#") else "#ff5c8a"
     return _TEMPLATE.replace("__ALERTS_JSON__", cfg).replace("__ACCENT__", accent)
+
+
+# Static default for anything importing the historical constant.
+OVERLAY_HTML = render_overlay(AlertConfig())
