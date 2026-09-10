@@ -168,9 +168,23 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             {"type": "address", "data": {"address": addr, "index": index}}
         )
 
+    async def _on_pot_balance(balance_sats: int) -> None:
+        await hub.broadcast(
+            {
+                "type": "goal_pot",
+                "data": {
+                    "balance_sats": balance_sats,
+                    "goal_sats": settings.goal_show.goal_sats
+                    if settings.goal_show
+                    else None,
+                },
+            }
+        )
+
     orchestrator.add_status_observer(_on_status)
     orchestrator.add_tip_status_observer(_on_tip_status)
     orchestrator.add_address_observer(_on_address)
+    orchestrator.add_pot_observer(_on_pot_balance)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -224,6 +238,14 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "connection": orchestrator.connection_state,
             "address": orchestrator.current_tip_address(),
             "token_menu": _token_menu(settings),
+            "goal_pot": (
+                {
+                    "balance_sats": orchestrator.pot_balance,
+                    "goal_sats": settings.goal_show.goal_sats,
+                }
+                if settings.goal_show
+                else None
+            ),
             "price_usd": orchestrator.current_price_usd(),
             "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),

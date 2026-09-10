@@ -44,9 +44,14 @@ def _hash160(data: bytes) -> bytes:
 # --- decode ---
 
 
+_SIZE_BITS = {0: 20, 1: 24, 2: 28, 3: 32}
+
+
 def decode(address: str) -> tuple[int, bytes]:
-    """Return (kind, hash160). kind 0 = P2PKH, 1 = P2SH,
-    2 = P2PKH token-aware, 3 = P2SH20 token-aware (CHIP-2022-02)."""
+    """Return (kind, payload_hash). kind 0 = P2PKH, 1 = P2SH,
+    2 = P2PKH token-aware, 3 = P2SH token-aware (CHIP-2022-02).
+    Hash length comes from the version's size bits: 20 bytes for P2PKH
+    and P2SH20, 32 bytes for P2SH32 (covenants)."""
     if ":" in address:
         prefix, payload = address.lower().split(":", 1)
     else:
@@ -62,7 +67,15 @@ def decode(address: str) -> tuple[int, bytes]:
     payload_bytes = bytes(_convertbits(data[:-8], 5, 8, pad=False))
     version = payload_bytes[0]
     kind = (version >> 3) & 0x1F
-    return kind, payload_bytes[1:21]
+    size = _SIZE_BITS.get(version & 0x07)
+    if size is None:
+        raise ValueError(f"Invalid CashAddr size bits in version {version:#x}")
+    h = payload_bytes[1 : 1 + size]
+    if len(h) != size:
+        raise ValueError("CashAddr payload truncated")
+    if kind in (0, 2) and size != 20:
+        raise ValueError(f"P2PKH must be 20 bytes, got {size}")
+    return kind, h
 
 
 def token_variant(address: str) -> str:
@@ -110,11 +123,11 @@ def encode_p2pkh(
 def to_script(address: str) -> bytes:
     """Locking bytecode (scriptPubKey) for an address. Token-aware kinds
     2/3 share the scripts of kinds 0/1."""
-    kind, h160 = decode(address)
+    kind, h = decode(address)
     if kind in (0, 2):
-        return b"\x76\xa9\x14" + h160 + b"\x88\xac"
+        return b"\x76\xa9\x14" + h + b"\x88\xac"
     if kind in (1, 3):
-        return b"\xa9\x14" + h160 + b"\x87"
+        return b"\xa9" + bytes([len(h)]) + h + b"\x87"  # P2SH20 / P2SH32
     raise ValueError(f"Unsupported address kind {kind}")
 
 

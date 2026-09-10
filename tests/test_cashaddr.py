@@ -40,3 +40,40 @@ def test_token_aware_encode_matches_decode():
     addr = encode_p2pkh(pubkey, token_aware=True)
     kind, _ = decode(addr)
     assert kind == 2
+
+
+# Cross-implementation vector: produced by cashscript 0.13 (address.mjs)
+# for a fixed GoalShow parameter set.
+P2SH32 = "bchtest:p0a7vksz5vwdmeqg669u70e7mndfr6ns2ep0vpre4046repxc254jdggwk2pg"
+P2SH32_TOKADDR = "bchtest:r0a7vksz5vwdmeqg669u70e7mndfr6ns2ep0vpre4046repxc254jlm500tcr"
+
+
+def test_p2sh32_decode_32_bytes():
+    kind, h = decode(P2SH32)
+    assert kind == 1
+    assert len(h) == 32
+
+
+def test_p2sh32_token_aware_same_script():
+    from lovecash.bch.cashaddr import to_script
+
+    kind, h = decode(P2SH32_TOKADDR)
+    assert kind == 3
+    assert len(h) == 32
+    assert to_script(P2SH32) == to_script(P2SH32_TOKADDR)
+    assert to_script(P2SH32) == b"\xa9\x20" + h + b"\x87"
+
+
+def test_p2sh32_round_trip_reencode():
+    from lovecash.bch.cashaddr import _encode
+
+    kind, h = decode(P2SH32)
+    assert _encode(h, version=0x0B, prefix="bchtest") == P2SH32
+
+
+def test_p2sh32_scripthash_is_hex64():
+    from lovecash.bch.cashaddr import to_scripthash
+
+    sh = to_scripthash(P2SH32_TOKADDR)
+    assert len(sh) == 64
+    int(sh, 16)

@@ -18,6 +18,7 @@ TriggerObserver = Callable[[TriggerEvent], Awaitable[None]]
 StatusObserver = Callable[[ConnectionState], Awaitable[None]]
 TipStatusObserver = Callable[[str, TipStatus, dict], Awaitable[None]]
 AddressObserver = Callable[[str, int], Awaitable[None]]
+PotBalanceObserver = Callable[[int], Awaitable[None]]
 
 
 class Orchestrator:
@@ -27,6 +28,8 @@ class Orchestrator:
         self._status_observers: list[StatusObserver] = []
         self._tip_status_observers: list[TipStatusObserver] = []
         self._address_observers: list[AddressObserver] = []
+        self._pot_observers: list[PotBalanceObserver] = []
+        self.pot_balance: int | None = None  # goal-show pot, sats
         self.connection_state = ConnectionState.CONNECTED
 
         if router is None:
@@ -47,6 +50,8 @@ class Orchestrator:
             on_address=self._broadcast_address,
             on_tip_status=self._broadcast_tip_status,
             token_rules=settings.token_rules,
+            goal_show=settings.goal_show,
+            on_pot_balance=self._broadcast_pot_balance,
         )
         self.add_source(self._payment_source)
 
@@ -72,6 +77,17 @@ class Orchestrator:
 
     def add_address_observer(self, obs: AddressObserver) -> None:
         self._address_observers.append(obs)
+
+    def add_pot_observer(self, obs: PotBalanceObserver) -> None:
+        self._pot_observers.append(obs)
+
+    async def _broadcast_pot_balance(self, balance_sats: int) -> None:
+        self.pot_balance = balance_sats
+        for obs in self._pot_observers:
+            try:
+                await obs(balance_sats)
+            except Exception as exc:
+                log.error("Pot-balance observer error: %s", exc)
 
     def current_address(self) -> str:
         return self._payment_source.current_address()

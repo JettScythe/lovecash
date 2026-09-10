@@ -12,3 +12,5 @@ exactly one minting NFT and it sits in the pot. Seed the pot with >= 678 sats (t
 
 Compile: `docker run --rm -v "$PWD/contracts:/w" -w /w node:22-alpine sh -c "npm install --no-audit --no-fund && npx cashc goal_show.cash -o goal_show.json"`
 Test:    `docker run --rm -v "$PWD/contracts:/w" -w /w node:22-alpine sh -c "npm install --no-audit --no-fund && npm test"`
+Address: `node address.mjs '{"performerPkh":"<40 hex>","goalSats":100000,"deadline":900000,"category":"<64 hex RAW order>"}'`
+         (same docker invocation with `node address.mjs ...`; `category` is reversed display hex)

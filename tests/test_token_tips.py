@@ -209,3 +209,104 @@ async def test_raw_fetch_failure_degrades_to_no_tokens():
 
     src = _setup(conf=1, require_conf=True)
     assert await src._token_receipts(FailingClient(), "tx1") == []
+
+
+# --- Phase 3: goal-show pot watching ---
+
+POT_ADDR = "bchtest:r0a7vksz5vwdmeqg669u70e7mndfr6ns2ep0vpre4046repxc254jlm500tcr"
+
+
+class PotFakeClient:
+    def __init__(self) -> None:
+        self.disconnected = asyncio.Event()
+        self.subscribed: set[str] = set()
+        self._notify: asyncio.Queue = asyncio.Queue()
+
+    async def connect(self): ...
+    async def close(self):
+        self.disconnected.set()
+
+    async def subscribe_scripthash(self, sh):
+        self.subscribed.add(sh)
+
+    async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
+        if method.endswith("get_history"):
+            return []
+        if method.endswith("get_balance"):
+            return {"confirmed": 40_000, "unconfirmed": 5_000}
+        return None
+
+    def push_scripthash(self, sh: str):
+        self._notify.put_nowait(
+            {"method": "blockchain.scripthash.subscribe", "params": [sh, "x"]}
+        )
+
+    async def next_notification(self):
+        return await self._notify.get()
+
+
+async def test_pot_subscribed_and_balance_reported():
+    from lovecash.config import GoalShowConfig
+
+    client = PotFakeClient()
+    balances: list[int] = []
+
+    async def on_pot(b):
+        balances.append(b)
+
+    src = PaymentSource(
+        _cfg(),
+        client_factory=lambda *a: client,
+        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000),
+        on_pot_balance=on_pot,
+    )
+    src._client = client
+    await src._subscribe_all()
+
+    from lovecash.bch.cashaddr import to_scripthash
+
+    pot_sh = to_scripthash(POT_ADDR)
+    assert pot_sh in client.subscribed
+    assert pot_sh not in src._sh_to_index  # never enters the tip pipeline
+    assert balances == [45_000]  # confirmed + unconfirmed
+
+
+async def test_pot_notification_updates_balance_not_tips():
+    from lovecash.bch.cashaddr import to_scripthash
+    from lovecash.config import GoalShowConfig
+
+    client = PotFakeClient()
+    balances: list[int] = []
+    fired: list = []
+
+    async def on_pot(b):
+        balances.append(b)
+
+    async def emit(ev):
+        fired.append(ev)
+
+    src = PaymentSource(
+        _cfg(),
+        client_factory=lambda *a: client,
+        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000),
+        on_pot_balance=on_pot,
+    )
+    src._client = client
+    pot_sh = to_scripthash(POT_ADDR)
+    await src._handle_notification(
+        {"method": "blockchain.scripthash.subscribe", "params": [pot_sh, "x"]},
+        emit,
+    )
+    assert balances == [45_000]
+    assert fired == []
+
+
+def test_goal_show_config_validates():
+    import pytest
+
+    from lovecash.config import GoalShowConfig
+
+    cfg = GoalShowConfig(address=POT_ADDR, goal_sats=100_000)
+    assert cfg.goal_sats == 100_000
+    with pytest.raises(ValueError):
+        GoalShowConfig(address=POT_ADDR, goal_sats=0)

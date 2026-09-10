@@ -127,6 +127,16 @@ class AlertConfig(BaseModel):
     accent: str = "#ff5c8a"  # overlay accent color
 
 
+class GoalShowConfig(BaseModel):
+    """Phase 3 covenant goal show. The pot address comes from
+    contracts/address.mjs (token address, starts with r…). The watcher
+    only observes the pot balance for the overlay goal bar — pledges are
+    NOT tips and never trigger toys. See docs/covenant-goal-shows.md."""
+
+    address: str  # covenant token-aware P2SH32 cashaddr
+    goal_sats: int = Field(ge=1)
+
+
 class ServerConfig(BaseModel):
     enabled: bool = False
     bind_host: str = "127.0.0.1"
@@ -146,6 +156,7 @@ class Settings(BaseSettings):
     server: ServerConfig = ServerConfig()
     rules: list[TipRule] = []
     token_rules: list[TokenRule] = []  # CashToken tips (CHIP-2022-02)
+    goal_show: GoalShowConfig | None = None  # Phase 3 covenant pot
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:

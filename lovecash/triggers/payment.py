@@ -5,14 +5,14 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from pathlib import Path
 
-from lovecash.bch.cashaddr import to_script, token_variant
+from lovecash.bch.cashaddr import to_script, to_scripthash, token_variant
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.pricing import PriceFeed
 from lovecash.bch.state import StateStore, default_state_dir
 from lovecash.bch.tokens import parse_tx
 from lovecash.bch.verify import Outcome, Verifier
-from lovecash.config import BchConfig
+from lovecash.config import BchConfig, GoalShowConfig
 from lovecash.models import TokenReceipt, TokenRule
 from lovecash.triggers.base import EmitFn, TriggerSource
 from lovecash.triggers.events import PaymentTrigger
@@ -23,6 +23,7 @@ log = logging.getLogger("lovecash.source.payment")
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
 AddressFn = Callable[[str, int], Awaitable[None]]
 TipStatusFn = Callable[[str, TipStatus, dict], Awaitable[None]]
+PotBalanceFn = Callable[[int], Awaitable[None]]
 
 
 class PaymentSource(TriggerSource):
@@ -36,6 +37,8 @@ class PaymentSource(TriggerSource):
         verifier_factory=None,
         state_path: Path | None = None,
         token_rules: list[TokenRule] | None = None,
+        goal_show: GoalShowConfig | None = None,
+        on_pot_balance: PotBalanceFn | None = None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
@@ -68,6 +71,13 @@ class PaymentSource(TriggerSource):
         self._token_rules: list[TokenRule] = []
         self._require_conf_cats: set[str] = set()
         self.set_token_rules(token_rules or [])
+        # Phase 3 goal-show pot: watch-only balance for the overlay goal
+        # bar. Kept OUT of _sh_to_index so pot txs never enter the tip
+        # pipeline — pledges are not tips.
+        self._pot_sh: str | None = (
+            to_scripthash(goal_show.address) if goal_show else None
+        )
+        self._on_pot_balance = on_pot_balance
 
     def set_token_rules(self, token_rules: list[TokenRule]) -> None:
         """Hot-swap token rules (dashboard settings save)."""
@@ -203,6 +213,17 @@ class PaymentSource(TriggerSource):
             self._sh_to_index.setdefault(sh, i)
         for sh in list(self._sh_to_index):
             await client.subscribe_scripthash(sh)
+        if self._pot_sh is not None:
+            await client.subscribe_scripthash(self._pot_sh)
+            await self._report_pot_balance()
+
+    async def _report_pot_balance(self) -> None:
+        client = self._require_client()
+        bal = await client.call("blockchain.scripthash.get_balance", self._pot_sh)
+        total = int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
+        log.info("Goal pot balance: %d sats", total)
+        if self._on_pot_balance:
+            await self._on_pot_balance(total)
 
     async def _extend_window(self) -> None:
         client = self._require_client()
@@ -267,19 +288,24 @@ class PaymentSource(TriggerSource):
             await self._on_address(self.current_tip_address(), self._next_index)
         try:
             while not self._stopped:
-                notif = await client.next_notification()
-                # A scripthash notification carries the scripthash that
-                # changed — scan just it. Anything unrecognized falls
-                # back to a full scan.
-                params = notif.get("params") or []
-                sh = params[0] if params and isinstance(params[0], str) else None
-                if sh is not None and sh in self._sh_to_index:
-                    await self._scan_one(sh, emit)
-                else:
-                    await self._scan_all(emit)
+                await self._handle_notification(await client.next_notification(), emit)
         finally:
             await client.close()
         return True
+
+    async def _handle_notification(self, notif: dict, emit) -> None:
+        # A scripthash notification carries the scripthash that
+        # changed — scan just it. Anything unrecognized falls
+        # back to a full scan. The goal-show pot only gets a balance
+        # refresh: pledges are not tips and never enter the pipeline.
+        params = notif.get("params") or []
+        sh = params[0] if params and isinstance(params[0], str) else None
+        if sh is not None and sh == self._pot_sh:
+            await self._report_pot_balance()
+        elif sh is not None and sh in self._sh_to_index:
+            await self._scan_one(sh, emit)
+        else:
+            await self._scan_all(emit)
 
     async def _replay_or_seed(self, emit) -> None:
         """First session only: reconcile tips that arrived while offline.

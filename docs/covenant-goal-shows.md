@@ -82,15 +82,16 @@ The covenant enforces abandonment protection, not honesty about demand:
 5. **Partial-goal upgrades.** Letting a performer forfeit-to-refund early
    ("show cancelled") adds a third path; keep v1 binary.
 
-## lovecash integration (when built)
+## lovecash integration
 
-- Config: `goal_show:` block — covenant address + goal + deadline.
-  lovecash derives the scripthash and watches it like any address, but
-  tags events as pledges, not tips: overlay goal bar fills from covenant
-  balance, no toy trigger on pledge (or a small acknowledgment rule).
+- **Done:** `goal_show:` config block (covenant token address + goal).
+  lovecash subscribes the pot's scripthash alongside the xpub addresses,
+  but pot changes only refresh the overlay goal bar — pledges are not
+  tips and never trigger toys. Derive the address with
+  `contracts/address.mjs` (dockerized node; see contracts/README.md).
 - On settlement: the performer's normal tip watcher sees the payout as
   an ordinary confirmed payment — existing pipeline, unchanged.
-- The `/tip` page gets a pledge mode: builds the covenant transaction
+- **Open:** the `/tip` page pledge mode: builds the covenant transaction
   client-side (viewer's wallet signs) instead of a plain BIP21 QR.
 
 ## Dependencies to evaluate at implementation time
