@@ -69,12 +69,14 @@ removed; commitizen stale version field dropped.
 
 - Assumption: all three default Electrum servers will keep valid certs;
   tls_verify can be set false per server for self-signed hosts.
-- Pre-existing gap found but NOT fixed (needs persistence design): tips
-  received while lovecash is offline are discovered during gap-limit
-  scanning but never emitted, because without a persisted seen-set the
-  watcher cannot distinguish them from already-credited history. Worth
-  a design decision (e.g. persist last-run state, or credit only
-  still-unconfirmed discovered txs).
+- Offline-tip gap FIXED (second half of the session): persisted watcher
+  state (`lovecash/bch/state.py`, `~/.lovecash/state-<xpub-tail>.json`,
+  `LOVECASH_STATE_DIR` override) with atomic writes; restarts replay
+  only unseen txs through the normal tiers. Fail-safe: missing/corrupt/
+  foreign state seeds from current history WITHOUT emitting (miss
+  rather than double-fire). Also fixed the sibling gap: rotated-out
+  addresses were unsubscribed on reconnect; all watched addresses are
+  now re-subscribed.
 - Commit 3030b49 accidentally swept in the .DS_Store untracking; noted
   here rather than rewritten.
 - scratch_rules.py / scratch_tip.py left on disk (untracked, now
