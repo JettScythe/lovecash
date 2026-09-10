@@ -241,11 +241,12 @@ TIP_HTML = """<!DOCTYPE html>
       <div style="height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
         <div id="pot-fill" style="height: 100%; width: 0%; background: linear-gradient(135deg, #ff5c8a, #ff9a5c); transition: width 0.4s ease;"></div>
       </div>
-      <p class="hint" style="text-align: left;">Pledges go into a smart-contract
+      <p class="hint" id="pot-hint" style="text-align: left;">Pledges go into a smart-contract
         pot, not the performer&rsquo;s wallet. If the goal isn&rsquo;t reached
         by the deadline, every pledger can claim an on-chain refund.
         Direct-wallet pledging lands in a future release &mdash; for now this
         bar tracks the pot live.</p>
+      <div id="pot-pledge-mount"></div>
       <div class="tk-cat" id="pot-addr" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; word-break: break-all; opacity: 0.6;"></div>
     </section>
 
@@ -728,6 +729,16 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
   loadStatus();
   connect();
 })();
+</script>
+<script type="module">
+  // Covenant pledge flow (goal show). The bundle self-checks /api/goal_pot
+  // and stays hidden unless a WalletConnect project id is configured, so the
+  // read-only bar above is unchanged for unconfigured relays.
+  import("/static/pledge.bundle.js").then(function () {
+    if (window.LovecashPledge) {
+      window.LovecashPledge.init(document.getElementById("goalpot"));
+    }
+  }).catch(function () { /* bundle absent (not built): read-only panel */ });
 </script>
 </body>
 </html>

@@ -7,9 +7,14 @@
     "cashc": "^0.13.2",
     "cashscript": "^0.13.2"
   },
+  "devDependencies": {
+    "@walletconnect/sign-client": "2.24.0",
+    "esbuild": "0.28.2"
+  },
   "scripts": {
     "compile": "cashc goal_show.cash -o goal_show.json",
     "test": "npm run compile && node --test",
-    "chipnet": "node chipnet_e2e.mjs"
+    "chipnet": "node chipnet_e2e.mjs",
+    "build-web": "esbuild web/pledge_ui.js --bundle --minify --format=esm --outfile=web-dist/pledge.bundle.js && echo 'now copy: cp contracts/web-dist/pledge.bundle.js lovecash/server/ui/static/pledge.bundle.js'"
   }
 }

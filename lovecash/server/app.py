@@ -4,6 +4,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from decimal import Decimal
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,6 +25,7 @@ from lovecash.triggers.status import TipStatus
 log = logging.getLogger("lovecash.server")
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+_STATIC_DIR = Path(__file__).resolve().parent / "ui" / "static"
 
 
 class SettingsUpdate(BaseModel):
@@ -338,6 +340,19 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 message=message,
             )
         }
+
+    @app.get("/static/pledge.bundle.js")
+    async def pledge_bundle() -> Response:
+        """The viewer pledge-flow bundle (built by `npm run build-web` in
+        contracts/; committed so performers never need node). The covenant
+        artifact is inlined into it at build time — no JSON route needed."""
+        path = _STATIC_DIR / "pledge.bundle.js"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="pledge bundle not built")
+        return Response(
+            content=path.read_bytes(),
+            media_type="application/javascript; charset=utf-8",
+        )
 
     @app.get("/api/goal_pot")
     async def api_goal_pot() -> dict:

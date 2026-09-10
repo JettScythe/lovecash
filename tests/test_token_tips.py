@@ -344,7 +344,6 @@ class UtxoFakeClient(PotFakeClient):
 
 
 async def test_pot_utxo_picks_minting_nft():
-    from lovecash.bch.cashaddr import to_scripthash
     from lovecash.config import GoalShowConfig
 
     raw_minting = _raw_tx_nft(POT_ADDR, CAT, 2)
