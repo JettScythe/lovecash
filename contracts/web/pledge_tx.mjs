@@ -29,7 +29,7 @@ export { le64 };
 // placeholderSignature/placeholderPublicKey inside covenant unlocking
 // bytecode — without it the wallet treats the covenant input as P2PKH
 // and the tx fails on-chain with "false/empty top stack element".
-function toRelaySourceOutput(so) {
+export function toRelaySourceOutput(so) {
   const r = {
     outpointTransactionHash: binToHex(so.outpointTransactionHash),
     outpointIndex: so.outpointIndex,
