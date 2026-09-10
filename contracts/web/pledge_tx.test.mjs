@@ -51,7 +51,7 @@ function setup() {
 
 test('web builder: pledge tx is VM-valid and lands pot + receipt correctly', async () => {
   const { provider, contract, pot, funder, funding, params } = setup();
-  const { builder, changeSats, wcTransactionObject } = await buildPledgeTx({
+  const { builder, changeSats, request, fundingInputIndices } = await buildPledgeTx({
     artifact,
     contractParams: params,
     potUtxo: apiShape(pot),
@@ -63,6 +63,9 @@ test('web builder: pledge tx is VM-valid and lands pot + receipt correctly', asy
   });
 
   assert.equal(changeSats, 20_000n - 10_000n - 800n - 1000n);
+  assert.equal(typeof request.transaction.transaction, 'string'); // relay-safe hex
+  assert.deepEqual(request.inputPaths, [[1, 'receive', 0]]);
+  assert.deepEqual(fundingInputIndices, [1]);
   builder.debug(); // full VM evaluation — the whole point
   await builder.send();
 
@@ -78,9 +81,9 @@ test('web builder: pledge tx is VM-valid and lands pot + receipt correctly', asy
   assert.equal(receipt.satoshis, 800n);
 });
 
-test('web builder: placeholder path produces a well-formed WC object', async () => {
+test('web builder: placeholder path produces a relay-safe WizardConnect request', async () => {
   const { provider, pot, funder, funding, params } = setup();
-  const { wcTransactionObject } = await buildPledgeTx({
+  const { request } = await buildPledgeTx({
     artifact,
     contractParams: params,
     potUtxo: apiShape(pot),
@@ -89,11 +92,21 @@ test('web builder: placeholder path produces a well-formed WC object', async () 
     amountSats: 10_000n,
     provider, // placeholder unlocker: no debug/send, object shape only
   });
-  assert.ok(wcTransactionObject.transaction);
-  assert.ok(Array.isArray(wcTransactionObject.sourceOutputs));
-  assert.equal(wcTransactionObject.transaction.inputs.length, 2);
-  assert.equal(wcTransactionObject.transaction.outputs.length, 3);
-  assert.equal(wcTransactionObject.broadcast, true);
+  const { transaction, inputPaths } = request;
+  assert.equal(typeof transaction.transaction, 'string');
+  assert.match(transaction.transaction, /^[0-9a-f]+$/);
+  assert.equal(transaction.broadcast, true);
+  assert.deepEqual(inputPaths, [[1, 'receive', 0]]);
+  assert.equal(transaction.sourceOutputs.length, 2);
+  // bare JSON.stringify must survive (the relay has no replacer)
+  assert.doesNotThrow(() => JSON.stringify(request));
+  const [potSo, fundSo] = transaction.sourceOutputs;
+  assert.notEqual(potSo.unlockingBytecode, ''); // pot input is complete
+  assert.equal(fundSo.unlockingBytecode, ''); // wallet fills this per inputPaths
+  assert.match(potSo.valueSatoshis, /^<bigint: \d+n>$/);
+  assert.match(potSo.token.category, /^[0-9a-f]{64}$/);
+  assert.equal(potSo.token.nft.capability, 'minting');
+  assert.equal(fundSo.token, undefined);
 });
 
 test('web builder: rejects below-dust pledge', async () => {

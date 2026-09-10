@@ -373,7 +373,6 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "deadline": gs.deadline,
             "performer_pkh": gs.performer_pkh,
             "balance_sats": orchestrator.pot_balance,
-            "wc_project_id": settings.server.wc_project_id,
             "wc_chain": gs.resolved_wc_chain,
             "utxo": await orchestrator.pot_utxo(),
         }

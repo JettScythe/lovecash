@@ -17,7 +17,6 @@ server:
   enabled: true
   bind_host: "127.0.0.1"
   bind_port: 8080
-  wc_project_id: "PASTE_PROJECT_ID_HERE"
 goal_show:
   address: "bchtest:rvlfdw3w6f6y7va78uf62kmuhrd62m7e6aaaqzx7s2rjyas4q79ukyxse7z8s"
   goal_sats: 100000

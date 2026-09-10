@@ -8,7 +8,8 @@
     "cashscript": "^0.13.2"
   },
   "devDependencies": {
-    "@walletconnect/sign-client": "2.24.0",
+    "@wizardconnect/core": "0.2.4",
+    "@wizardconnect/dapp": "0.2.2",
     "esbuild": "0.28.2"
   },
   "scripts": {

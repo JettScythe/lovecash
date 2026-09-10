@@ -1,8 +1,7 @@
 // Pure, transport-agnostic pledge-transaction builder for the GoalShow
 // covenant. No network calls: the ElectrumNetworkProvider is a dummy for
 // address validation only (every input's source output is supplied), and
-// the WalletConnect object is returned for the caller to transport
-// (WalletConnect sign-client today, WizardConnect later).
+// the WizardConnect request object is returned for the caller to transport.
 import { Contract, ElectrumNetworkProvider, TransactionBuilder, placeholderP2PKHUnlocker } from 'cashscript';
 import { decodeCashAddress, encodeCashAddress, CashAddressType, hexToBin, binToHex } from '@bitauth/libauth';
 
@@ -10,6 +9,36 @@ const RECEIPT_DUST = 800n; // token-output dust incl. 28-byte commitment
 const CHANGE_DUST = 546n;
 
 const le64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return new Uint8Array(b); };
+
+// Mirror of @wizardconnect/core's sourceOutputToRelay (present in
+// dist/protocols/hdwalletv1-serialize.js but NOT exported from the package).
+// The relay transport is a bare JSON.stringify — no replacer — so every
+// value must be plain JSON: hex strings + `<bigint: Xn>` tags. Token
+// category/commitment stay in libauth-native byte order (the wallet parses
+// them back with the same helpers).
+function toRelaySourceOutput(so) {
+  const r = {
+    outpointTransactionHash: binToHex(so.outpointTransactionHash),
+    outpointIndex: so.outpointIndex,
+    unlockingBytecode: binToHex(so.unlockingBytecode),
+    sequenceNumber: so.sequenceNumber,
+    valueSatoshis: `<bigint: ${so.valueSatoshis}n>`,
+    lockingBytecode: binToHex(so.lockingBytecode),
+  };
+  if (so.token) {
+    r.token = {
+      category: binToHex(so.token.category),
+      amount: `<bigint: ${so.token.amount}n>`,
+      ...(so.token.nft && {
+        nft: {
+          ...(so.token.nft.capability !== undefined && { capability: so.token.nft.capability }),
+          ...(so.token.nft.commitment !== undefined && { commitment: binToHex(so.token.nft.commitment) }),
+        },
+      }),
+    };
+  }
+  return r;
+}
 
 // libauth decodeCashAddress returns an error STRING on failure.
 export function decodeAddr(address) {
@@ -49,7 +78,10 @@ const mapUtxo = (u) => ({
  * @param {bigint|number} [o.feeSats=1000]
  * @param {object} [o.provider] - testing only: real provider instead of the dummy
  * @param {object} [o.funderUnlocker] - testing only: real unlocker instead of placeholder
- * @returns {Promise<{wcTransactionObject: object, changeSats: bigint, builder: TransactionBuilder}>}
+ * @returns {Promise<{request: {transaction: object, inputPaths: Array}, changeSats: bigint, fundingInputIndices: number[], builder: TransactionBuilder}>}
+ *   request is ready for `DappConnectionManager.signTransaction(request)`.
+ *   inputPaths covers ONLY the funder P2PKH input(s) — the pot input is
+ *   complete (covenant needs no signature), so it is left out.
  */
 export async function buildPledgeTx({
   artifact,
@@ -109,9 +141,27 @@ export async function buildPledgeTx({
     .addOutput({ to: funderAddress, amount: change })
     .setLocktime(0); // passes locktime < deadline for any deadline >= 1
 
+  // WizardConnect hdwalletv1 request shape (reconciled against installed
+  // @wizardconnect/core 0.2.4 — NOT the lagging docs):
+  //  - transaction.transaction: HEX (the relay does bare JSON.stringify;
+  //    libauth objects carry bigint/Uint8Array and would not survive).
+  //    Funder unlocking bytecode stays empty (placeholder) — the wallet
+  //    fills it per inputPaths.
+  //  - sourceOutputs: relay-safe JSON via toRelaySourceOutput.
+  //  - the pot input (index 0) is complete as-is and absent from inputPaths.
+  const wc = builder.generateWcTransactionObject({ broadcast: true, userPrompt });
   return {
-    wcTransactionObject: builder.generateWcTransactionObject({ broadcast: true, userPrompt }),
+    request: {
+      transaction: {
+        transaction: builder.build(),
+        sourceOutputs: wc.sourceOutputs.map(toRelaySourceOutput),
+        broadcast: true,
+        userPrompt,
+      },
+      inputPaths: [[1, 'receive', 0]], // [inputIndex, pathName, addressIndex]
+    },
     changeSats: change,
+    fundingInputIndices: [1],
     builder, // for tests (mock evaluation) and advanced transports
   };
 }

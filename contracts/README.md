@@ -7,6 +7,10 @@ bound to one token category. The pot UTXO carries the category's minting NFT;
 wallets sign plain P2PKH), `claim` pays the performer once the goal is met,
 `refund(sig, pubkey)` pays a pledger back after the deadline if the goal was missed.
 
+Viewer pledge flow: browser bundle talks to Cashonize via **WizardConnect** (Nostr relay,
+no WalletConnect project id). After any contract change: `npm run build-web` (docker) then
+`cp contracts/web-dist/pledge.bundle.js lovecash/server/ui/static/pledge.bundle.js`.
+
 Trust summary: abandonment protection only — the performer can always self-fund a claim
 (equivalent to tipping themselves). Pledgers must verify off-chain that genesis minted
 exactly one minting NFT and it sits in the pot. Seed the pot with >= 678 sats (token dust floor).

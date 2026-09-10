@@ -125,10 +125,8 @@ server:
 #   deadline: 900000        # covenant deadline (block height); must be >= 1
 #   performer_pkh: "..."    # your 40-hex pubkey hash (rebuilds the covenant
 #                           # client-side so viewers can pledge from wallets)
-# Wallet pledging (BCH WalletConnect / Cashonize): set a WalletConnect Cloud
-# project id under server: — without it the /tip goal panel is read-only.
-# server:
-#   wc_project_id: "..."   # cloud.walletconnect.com
+# Wallet pledging works over WizardConnect (Cashonize v0.9.0+) — no API
+# keys or accounts needed; the /tip goal panel handles pairing by QR.
 
 # --- CashToken tips (CHIP-2022-02) ---
 # Uncomment to accept token tips. When any token_rules exist, the tip QR

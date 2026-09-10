@@ -157,10 +157,6 @@ class ServerConfig(BaseModel):
     # Shared secret the performer uses to authenticate control routes.
     # Required when binding to a non-loopback address (enforced at startup).
     relay_token: str | None = None
-    # WalletConnect Cloud project id — enables viewer wallet pairing for
-    # covenant pledges (BCH WalletConnect / Cashonize). Without it the
-    # /tip pledge panel is read-only.
-    wc_project_id: str | None = None
     alerts: AlertConfig = AlertConfig()
 
 
