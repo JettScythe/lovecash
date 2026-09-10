@@ -12,3 +12,5 @@ Pick the guide that matches you:
   server (technical).
 - [Developer Guide](developing.md) — contribute or modify the code.
 - [FAQ](faq.md) — common questions, money, privacy, legality.
+- [CashTokens Research](cashtokens-research.md) — design research for
+  token tipping, liquidity pools, and covenant goal shows (future work).
