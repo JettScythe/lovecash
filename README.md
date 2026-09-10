@@ -122,6 +122,7 @@ body, and confirm Ctrl-C stops it mid-buzz before you trust it.
 |---|---|
 | lovecash init | Interactive setup wizard |
 | lovecash doctor | Preflight checks: xPub, node, toy |
+| lovecash run | Bridge only, no overlay (headless) |
 | lovecash serve | Bridge plus OBS overlay relay |
 | lovecash qr | Save a tipping QR to a file |
 | lovecash scripthash | Print an address's Electrum scripthash (debug) |

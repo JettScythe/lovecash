@@ -337,6 +337,35 @@ def serve(
 
 
 @app.command()
+def run(
+    config: str = typer.Option("config.yaml", "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Run the bridge without the OBS overlay relay (headless mode)."""
+    _setup_logging(verbose)
+    asyncio.run(_run(config))
+
+
+async def _run(config: str) -> None:
+    from lovecash.config import Settings
+    from lovecash.core.orchestrator import Orchestrator
+
+    settings = Settings.from_yaml(config)
+    orch = Orchestrator(settings)
+    console.print(
+        Panel.fit(
+            "Watching for tips (no overlay).\n"
+            "[bold]Ctrl-C = panic stop + quit.[/]",
+            title="lovecash run",
+            style="magenta",
+        )
+    )
+    # Ctrl-C cancels this; Orchestrator.run's finally engages the panic
+    # stop, halts the toy, and closes connections.
+    await orch.run()
+
+
+@app.command()
 def qr(
     config: str = typer.Option("config.yaml", "--config", "-c"),
     amount: float = typer.Option(None, "--amount"),
