@@ -108,8 +108,9 @@ window.LovecashPledge = {
         const relay = initiateDappRelay((payload) => dappMgr.updateConnection(payload.client, payload.status));
         dappMgr.attachRelay(relay);
 
-        const uri = relay.qrUri || relay.uri;
-        qrImg.src = '/qr-data.png?data=' + encodeURIComponent(uri);
+        const qrUri = relay.qrUri || relay.uri; // uppercase/encoded: QR alphanumeric mode
+        const uri = relay.uri;                  // raw wiz:// form: paste/copy
+        qrImg.src = '/qr-data.png?data=' + encodeURIComponent(qrUri);
         qrWrap.classList.remove('hidden');
         uriLink.textContent = uri; // phone viewers can't scan their own screen
         uriLink.classList.remove('hidden');
