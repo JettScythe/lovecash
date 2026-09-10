@@ -330,6 +330,8 @@ def _raw_tx_nft(addr: str, category: str, capability: int) -> str:
 
 
 class UtxoFakeClient(PotFakeClient):
+    """Pre-CashToken server: rejects the include_tokens filter param."""
+
     def __init__(self, rows: list[dict], raws: dict[str, str]) -> None:
         super().__init__()
         self._rows = rows
@@ -337,6 +339,8 @@ class UtxoFakeClient(PotFakeClient):
 
     async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
         if method.endswith("listunspent"):
+            if len(params) > 1:
+                raise RuntimeError("too many params")  # no token extension
             return list(self._rows)
         if method.endswith("transaction.get"):
             return self._raws[params[0]]
@@ -388,3 +392,72 @@ async def test_address_utxos_marks_tokenless():
     from lovecash.bch.cashaddr import to_scripthash
 
     assert to_scripthash(addr)
+
+
+async def test_listunspent_prefers_fulcrum_token_extension():
+    """Fulcrum hides token UTXOs unless include_tokens is passed — the
+    pot carries an NFT, so a plain call reads empty. The extension path
+    must be used when available, with fallback when not."""
+
+    class ExtClient(PotFakeClient):
+        async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
+            if method.endswith("listunspent"):
+                if len(params) > 1 and params[1] == "include_tokens":
+                    return [
+                        {
+                            "height": 1,
+                            "tx_hash": "aa",
+                            "tx_pos": 0,
+                            "value": 5000,
+                            "token_data": {
+                                "amount": "0",
+                                "category": CAT,
+                                "nft": {"capability": "minting", "commitment": ""},
+                            },
+                        }
+                    ]
+                return []  # plain call hides token outputs (Fulcrum behavior)
+            return await super().call(method, *params)
+
+    from lovecash.config import GoalShowConfig
+
+    src = PaymentSource(
+        _cfg(),
+        client_factory=lambda *a: ExtClient(),
+        goal_show=GoalShowConfig(
+            address=POT_ADDR, goal_sats=100_000, deadline=900_000,
+        ),
+    )
+    src._client = ExtClient()
+    pot = await src.pot_utxo()
+    assert pot is not None, "token-bearing pot invisible without include_tokens"
+    assert pot["token"]["nft"]["capability"] == "minting"
+
+
+async def test_listunspent_fallback_without_extension():
+    """Servers without the CashToken extension: plain listunspent +
+    raw-tx parse still finds the pot."""
+
+    class OldClient(PotFakeClient):
+        async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
+            if method.endswith("listunspent"):
+                if len(params) > 1:
+                    raise RuntimeError("unknown param")
+                return [{"tx_hash": "bb", "tx_pos": 0, "height": 1, "value": 5000}]
+            if method.endswith("transaction.get"):
+                return _raw_tx_nft(POT_ADDR, CAT, 2)
+            return await super().call(method, *params)
+
+    from lovecash.config import GoalShowConfig
+
+    src = PaymentSource(
+        _cfg(),
+        client_factory=lambda *a: OldClient(),
+        goal_show=GoalShowConfig(
+            address=POT_ADDR, goal_sats=100_000, deadline=900_000,
+        ),
+    )
+    src._client = OldClient()
+    pot = await src.pot_utxo()
+    assert pot is not None
+    assert pot["token"]["category"] == CAT

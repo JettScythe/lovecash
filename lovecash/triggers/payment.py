@@ -219,7 +219,16 @@ class PaymentSource(TriggerSource):
 
     async def _report_pot_balance(self) -> None:
         client = self._require_client()
-        bal = await client.call("blockchain.scripthash.get_balance", self._pot_sh)
+        try:
+            # Fulcrum hides token-bearing UTXOs unless asked — the pot
+            # carries the minting NFT, so a plain get_balance reads 0.
+            bal = await client.call(
+                "blockchain.scripthash.get_balance", self._pot_sh, "include_tokens"
+            )
+        except Exception:
+            bal = await client.call(
+                "blockchain.scripthash.get_balance", self._pot_sh
+            )
         total = int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
         log.info("Goal pot balance: %d sats", total)
         if self._on_pot_balance:
@@ -228,14 +237,40 @@ class PaymentSource(TriggerSource):
     async def _listunspent(self, scripthash: str) -> list[dict]:
         """UTXOs for a scripthash, token data included.
 
-        Server-agnostic: plain listunspent + our own raw-tx parse (the
-        same parser the token watcher uses) instead of relying on
-        Fulcrum's CashToken extensions, which not every server runs.
+        Prefers the Fulcrum CashToken extension ("include_tokens"); falls
+        back to plain listunspent + our own raw-tx parse on servers
+        without it.
         """
         client = self._require_client()
-        rows = await client.call("blockchain.scripthash.listunspent", scripthash)
+        try:
+            rows = await client.call(
+                "blockchain.scripthash.listunspent", scripthash, "include_tokens"
+            )
+            extended = True
+        except Exception:
+            rows = await client.call("blockchain.scripthash.listunspent", scripthash)
+            extended = False
         out = []
         for row in rows or []:
+            if extended:
+                td = row.get("token_data")
+                token = None
+                if td:
+                    token = {
+                        "category": td["category"],
+                        "amount": int(td.get("amount", 0)),
+                        "nft": td.get("nft"),
+                    }
+                out.append(
+                    {
+                        "tx_hash": row["tx_hash"],
+                        "tx_pos": row["tx_pos"],
+                        "height": row.get("height", 0),
+                        "value": int(row["value"]),
+                        "token": token,
+                    }
+                )
+                continue
             raw = await client.call("blockchain.transaction.get", row["tx_hash"])
             outputs = parse_tx(bytes.fromhex(raw))
             o = outputs[row["tx_pos"]]

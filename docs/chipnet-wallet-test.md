@@ -17,6 +17,11 @@ goal 50,000, deadline ~2 months out).
 
 ## Test steps
 
+0. Hard-refresh http://127.0.0.1:8080/tip (Cmd-Shift-R) — the panel is
+   static HTML cached by the browser; the wallet bundle loads fresh.
+   chipnet.imaginary.cash's EXPLORER is flaky (502s); its Electrum
+   server is fine. To verify any txid, ask lovecash (it reads the chain
+   directly) rather than the explorer.
 1. Open Cashonize (v0.9.0+; on macOS use the web app at cashonize.com).
    Create a new wallet. If Cashonize has a chipnet/testnet toggle, use
    it; if not, **stop** — mainnet Cashonize must never touch this test
