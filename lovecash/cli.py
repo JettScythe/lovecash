@@ -302,7 +302,9 @@ async def _doctor(config: str) -> None:
             )
     except Exception:
         table.add_row(
-            "Lovense Connect", "[yellow]not found — open the Lovense app and enable "
+            "Lovense Connect",
+            "[yellow]not found — open the Lovense Connect app, connect your "
+            "toy, and enable Game Mode[/]",
         )
 
     console.print(table)

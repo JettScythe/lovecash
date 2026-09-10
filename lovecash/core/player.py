@@ -37,9 +37,12 @@ class CommandPlayer:
 
     async def submit(self, cmd: ToyCommand, tip_id: str | None = None) -> None:
         if self._limits.playback is Playback.OVERRIDE:
-            await self._announce(tip_id, "active", {})
-            await self._controller.run(cmd)
-            await self._announce(tip_id, "done", {})
+            ran = await self._controller.run(cmd)
+            # Don't claim "active" when the safety gate or a toy error
+            # dropped the command — the status stream must not lie.
+            if ran:
+                await self._announce(tip_id, "active", {})
+            await self._announce(tip_id, "done", {"played": ran})
             return
         self._enqueue_with_trim(cmd, tip_id)
         await self._announce(
