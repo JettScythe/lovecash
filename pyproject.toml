@@ -107,6 +107,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "tests/*.py" = ["S101", "S104"]
 "lovecash/bch/electrum.py" = ["S101"]
 "lovecash/cli.py" = ["S104", "S501"]
+"lovecash/onboard.py" = ["S501"]  # Lovense Connect local API, self-signed
 "lovecash/lovense/controller.py" = ["S501"]
 
 [tool.ruff.format]

@@ -4,7 +4,6 @@ import asyncio
 import logging
 
 import typer
-import yaml
 from httpx import AsyncClient
 from rich.console import Console
 from rich.panel import Panel
@@ -32,22 +31,9 @@ def init(config: str = typer.Option("config.yaml", "--config", "-c")) -> None:
 
 async def _detect_toys() -> list[tuple[str, str]]:
     """Return [(toy_id, name), ...] of online toys from Lovense Connect."""
-    from lovecash.config import LovenseConfig
+    from lovecash.onboard import detect_toys
 
-    cfg = LovenseConfig()
-    scheme = "https" if cfg.use_https else "http"
-    url = f"{scheme}://{cfg.host}:{cfg.port}/GetToys"
-    try:
-        async with AsyncClient(verify=False, timeout=4) as hc:
-            resp = await hc.get(url)
-        data = resp.json().get("data", {})
-        return [
-            (tid, t.get("name", "Unknown"))
-            for tid, t in data.items()
-            if t.get("status") == 1
-        ]
-    except Exception:
-        return []
+    return await detect_toys()
 
 
 def _prompt_action(label: str):
@@ -64,42 +50,12 @@ def _prompt_action(label: str):
             console.print("[red]Unknown action. Pick one of the listed.[/]")
 
 
-def _build_rules(
-    action,
-    category,
-    toy_id: str | None,
-    toy_label: str,
-    multi: bool,
-    max_strength: int,
-    max_duration: float,
-) -> list[dict]:
-    from lovecash.lovense.toys import CATEGORY_RULES
-
-    rules: list[dict] = []
-    for r in CATEGORY_RULES[category]:
-        rule: dict = {
-            "name": f"{toy_label}-{r['name']}" if multi else r["name"],
-            "min_sats": r["min_sats"],
-            "action": action.value,
-            "strength": min(r["strength"], max_strength),
-            "duration_s": min(float(r["duration_s"]), max_duration),
-        }
-        if "max_sats" in r:
-            rule["max_sats"] = r["max_sats"]
-        if multi and toy_id is not None:
-            rule["toy"] = toy_id
-        rules.append(rule)
-    return rules
-
-
 async def _init(config: str) -> None:
-    from importlib.resources import files
-
     from anyio import Path
 
     from lovecash.bch.derive import XpubDeriver, XpubError
-    from lovecash.config import Settings
-    from lovecash.lovense.toys import KNOWN_TOYS, ToyCategory
+    from lovecash.lovense.toys import ToyCategory
+    from lovecash.onboard import build_rules, render_config, toy_defaults
 
     console.print(Panel.fit("lovecash setup", style="bold magenta"))
     if await Path(config).exists() and not typer.confirm(
@@ -154,7 +110,7 @@ async def _init(config: str) -> None:
             "can run init again later once your toy is connected.[/]"
         )
         action = _prompt_action("What does your toy do?")
-        all_rules = _build_rules(
+        all_rules = build_rules(
             action,
             ToyCategory.VIBRATOR,
             None,
@@ -167,8 +123,8 @@ async def _init(config: str) -> None:
         multi = len(detected) > 1
         console.print(f"[green]Detected {len(detected)} toy(s).[/]")
         for toy_id, raw_name in detected:
-            profile = KNOWN_TOYS.get(raw_name.lower())
-            if profile is None:
+            defaults = toy_defaults(raw_name)
+            if defaults is None:
                 console.print(
                     f"[yellow]'{raw_name}' isn't in the known-toy list "
                     f"yet — please tell me what it does.[/]"
@@ -176,11 +132,10 @@ async def _init(config: str) -> None:
                 action = _prompt_action(f"Action for {raw_name}")
                 category = ToyCategory.VIBRATOR
             else:
-                action = profile.action
-                category = profile.category
+                action, category = defaults
                 console.print(f"  [cyan]{raw_name}[/] -> {action.value}")
             all_rules.extend(
-                _build_rules(
+                build_rules(
                     action,
                     category,
                     toy_id,
@@ -195,27 +150,14 @@ async def _init(config: str) -> None:
 
     relay_enabled = typer.confirm("Enable the OBS overlay relay?", default=True)
 
-    # --- render the template ---
-
-    template = (files("lovecash") / "config.template.yaml").read_text()
-    rendered = (
-        template.replace("{{ xpub }}", xpub)
-        .replace("{{ max_strength }}", str(max_strength))
-        .replace("{{ max_duration_s }}", str(max_duration))
-        .replace("{{ relay_enabled }}", "true" if relay_enabled else "false")
-    )
-
-    rules_yaml = yaml.safe_dump({"rules": all_rules}, sort_keys=False).strip()
-    rendered = rendered.replace("{{ rules }}", rules_yaml)
-
-    toys_yaml = ""
-    if toy_specs:
-        toys_yaml = yaml.safe_dump({"toys": toy_specs}, sort_keys=False).strip()
-    rendered = rendered.replace("{{ toys }}", toys_yaml)
-
-    # --- validate BEFORE writing ---
+    # --- render + validate BEFORE writing ---
     try:
-        Settings.model_validate(yaml.safe_load(rendered))
+        rendered = render_config(
+            xpub, max_strength, max_duration, relay_enabled, all_rules, toy_specs
+        )
+    except XpubError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
     except Exception as exc:
         console.print(
             "[red]Internal error: the generated config failed validation. "
@@ -323,9 +265,26 @@ def serve(
     _setup_logging(verbose)
     import uvicorn
 
-    settings = Settings.from_yaml(config)
+    try:
+        settings = Settings.from_yaml(config)
+    except Exception:
+        # No usable config: fall into setup mode — loopback-only wizard
+        # that writes config.yaml, then the performer restarts serve.
+        from lovecash.server.setup import create_setup_app
+
+        console.print(
+            Panel.fit(
+                f"No usable config at {config}.\n"
+                "Open the setup wizard in your browser:\n"
+                "[bold cyan]http://localhost:8080/setup[/]",
+                title="lovecash setup mode",
+                style="magenta",
+            )
+        )
+        uvicorn.run(create_setup_app(config), host="127.0.0.1", port=8080)
+        return
     host, port = settings.server.bind_host, settings.server.bind_port
-    app_instance = create_app(settings)  # raises early if misconfigured
+    app_instance = create_app(settings, config)  # raises early if misconfigured
     display_host = "localhost" if host == "0.0.0.0" else host
     console.print(
         Panel.fit(

@@ -43,13 +43,25 @@ This downloads everything lovecash needs. You only do this once.
 
 ## Step 3: Run the setup wizard
 
-In the terminal:
+**In your browser (easiest):** run
+
+```bash
+uv run lovecash serve
+```
+
+If there's no config yet, this starts a local setup wizard instead of
+the relay — open http://localhost:8080/setup. It walks you through toy
+detection, your wallet key (with a visual of the addresses it derives),
+and safety limits, then writes `config.yaml` for you. Restart
+`lovecash serve` afterwards to go live.
+
+**Or in the terminal:**
 
 ```bash
 uv run lovecash init
 ```
 
-It asks for:
+It asks for (same questions as the browser wizard):
 
 - Your wallet's **xpub** (Master Public Key). In Electron Cash:
   Wallet -> Information -> Master Public Key. It starts with `xpub`.

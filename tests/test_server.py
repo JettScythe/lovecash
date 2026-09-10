@@ -78,6 +78,10 @@ def test_pages_serve(monkeypatch):
         assert "ALERTS" in client.get("/overlay").text
         assert "PANIC STOP" in client.get("/dashboard").text
         assert "Tip with Bitcoin Cash" in client.get("/tip").text
+        tip = client.get("/tip").text
+        assert 'id="track"' in tip  # live lifecycle stepper
+        assert 'class="proof card"' in tip  # trust explainer
+        assert 'msg.type === "tip_status"' in tip
 
 
 def test_overlay_injects_alert_config(monkeypatch):
@@ -224,3 +228,141 @@ def test_tip_alert_payload_and_min_sats_filter(monkeypatch):
             only = json.loads(ws.receive_text())
             assert only["type"] == "stats"
             assert only["data"]["total_sats"] == 50_500
+
+
+def _settings_client(monkeypatch, tmp_path):
+    """App wired to a real config path so settings saves persist."""
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from lovecash.core.orchestrator import Orchestrator
+    from lovecash.server.app import create_app
+
+    async def _noop_run(self):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(Orchestrator, "run", _noop_run)
+    cfg = Settings(
+        limits=Limits(),
+        lovense=LovenseConfig(),
+        bch=BchConfig(xpub=XPUB),
+        server=ServerConfig(),
+    )
+    path = tmp_path / "config.yaml"
+    path.write_text(f"bch:\n  xpub: {XPUB}\n")
+    return TestClient(
+        create_app(cfg, str(path)), base_url="http://127.0.0.1:8080"
+    ), path
+
+
+def test_settings_roundtrip_hot_applies_and_persists(monkeypatch, tmp_path):
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client:
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        before = resp.json()
+        assert before["limits"]["max_strength"] == 12
+        assert before["persisted"] is True
+
+        body = {
+            "limits": {**before["limits"], "max_strength": 7},
+            "rules": [
+                {
+                    "name": "buzz",
+                    "min_sats": 1000,
+                    "action": "Vibrate",
+                    "strength": 5,
+                    "duration_s": 3,
+                }
+            ],
+            "alerts": {**before["alerts"], "goal_sats": 42_000},
+        }
+        resp = client.post("/api/settings", json=body)
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True,
+            "applied": ["limits", "rules", "alerts"],
+            "persisted": True,
+        }
+
+        # hot-applied in memory
+        orch = client.app.state.orchestrator
+        assert orch._settings.limits.max_strength == 7
+        assert (
+            orch._engine.resolve_all(
+                PaymentTrigger(
+                    source_id="t", txid="x", amount_sats=5000, confirmations=1
+                )
+            )[0][0].strength
+            == 5
+        )
+
+        # persisted to disk, loadable, untouched sections intact
+        from lovecash.config import Settings as S
+
+        reloaded = S.from_yaml(path)
+        assert reloaded.limits.max_strength == 7
+        assert reloaded.server.alerts.goal_sats == 42_000
+        assert reloaded.rules[0].name == "buzz"
+        assert reloaded.bch.xpub == XPUB
+        assert oct(path.stat().st_mode)[-3:] == "600"
+
+
+def test_settings_post_rejects_invalid_rules(monkeypatch, tmp_path):
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client:
+        resp = client.post(
+            "/api/settings",
+            json={"rules": [{"name": "x"}]},  # missing required fields
+        )
+        assert resp.status_code == 422
+
+
+def test_settings_requires_local_or_token(monkeypatch, tmp_path):
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client:
+        resp = client.post(
+            "/api/settings",
+            json={"alerts": {"sound": False}},
+            headers={"Sec-Fetch-Site": "cross-site"},
+        )
+        assert resp.status_code == 403
+
+
+def test_settings_save_broadcasts_to_overlays(monkeypatch, tmp_path):
+    """Goal/accent changes must reach open overlays immediately, not
+    after the next tip (overlay goal bar is stats-message driven)."""
+    import json as _json
+
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client, client.websocket_connect("/overlay-ws") as ws:
+        before = client.get("/api/settings").json()
+        body = {"alerts": {**before["alerts"], "goal_sats": 99_000}}
+        assert client.post("/api/settings", json=body).status_code == 200
+        msgs = [_json.loads(ws.receive_text()), _json.loads(ws.receive_text())]
+        stats = next(m for m in msgs if m["type"] == "stats")
+        alerts = next(m for m in msgs if m["type"] == "alerts")
+        assert stats["data"]["goal_sats"] == 99_000
+        assert alerts["data"]["goal_sats"] == 99_000
+
+
+def test_goal_visibility_toggle_persists_and_broadcasts(monkeypatch, tmp_path):
+    import json as _json
+
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client, client.websocket_connect("/overlay-ws") as ws:
+        before = client.get("/api/settings").json()
+        assert before["alerts"]["show_goal"] is True  # default on
+        body = {"alerts": {**before["alerts"], "goal_sats": 50_000, "show_goal": False}}
+        assert client.post("/api/settings", json=body).status_code == 200
+        msgs = [_json.loads(ws.receive_text()), _json.loads(ws.receive_text())]
+        alerts = next(m for m in msgs if m["type"] == "alerts")
+        assert alerts["data"]["show_goal"] is False
+        assert alerts["data"]["goal_sats"] == 50_000
+
+        from lovecash.config import Settings as S
+
+        reloaded = S.from_yaml(path)
+        assert reloaded.server.alerts.show_goal is False
+        assert reloaded.server.alerts.goal_sats == 50_000

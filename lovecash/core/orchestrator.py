@@ -49,6 +49,10 @@ class Orchestrator:
         )
         self.add_source(self._payment_source)
 
+    def set_rules(self, rules) -> None:
+        """Hot-swap the tip rules (dashboard settings save)."""
+        self._engine = RulesEngine(rules)
+
     def add_source(self, source: TriggerSource) -> None:
         self.sources.append(source)
 

@@ -150,6 +150,34 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .status.st-active { background: rgba(92, 255, 157, 0.15); color: #5cff9d; }
   .status.st-done { background: rgba(255, 255, 255, 0.07); color: rgba(255, 255, 255, 0.5); }
   .muted { color: rgba(255, 255, 255, 0.5); font-size: 14px; }
+
+  /* settings editor */
+  .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+  .set-field label { display: block; font-size: 12px; opacity: 0.6; margin-bottom: 4px; }
+  .set-field .val { color: #ff9a5c; font-weight: 700; }
+  .set-field input[type="range"] { width: 100%; accent-color: #ff5c8a; }
+  .set-field input[type="number"], .set-field input[type="text"], .set-field select, .set-field textarea {
+    width: 100%; padding: 8px 10px; font: inherit; font-size: 14px;
+    color: #f2f2f5; background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
+  }
+  .set-field textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; min-height: 150px; resize: vertical;
+  }
+  .set-field input[type="color"] { width: 48px; height: 32px; padding: 0; border: 0; background: none; }
+  .set-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 20px; }
+  .set-check input { accent-color: #ff5c8a; }
+  #settings-save {
+    margin-top: 14px; padding: 11px; width: 100%; cursor: pointer;
+    font: inherit; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, #ff5c8a, #ff9a5c);
+    border: 0; border-radius: 10px;
+  }
+  #settings-msg { margin-top: 8px; font-size: 13px; min-height: 1.2em; }
+  #settings-msg.ok { color: #5cff9d; }
+  #settings-msg.err { color: #ff6b6b; }
+  @media (max-width: 700px) { .set-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -206,6 +234,62 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <tbody id="tips-body"></tbody>
     </table>
     <div id="tips-empty" class="muted">no tips yet this session</div>
+  </section>
+
+  <section class="card">
+    <h2>Settings — live, no restart</h2>
+    <div class="muted" style="margin-bottom:14px">Applies to the next tip and saves to config.yaml. Wallet key, servers and toy wiring stay in config.yaml (need a restart).</div>
+    <div class="set-grid">
+      <div class="set-field">
+        <label>Max strength <span class="val" id="set-strength-val">—</span> / 20</label>
+        <input type="range" id="set-strength" min="1" max="20" />
+      </div>
+      <div class="set-field">
+        <label>Max duration per tip <span class="val" id="set-duration-val">—</span>s</label>
+        <input type="range" id="set-duration" min="1" max="120" />
+      </div>
+      <div class="set-field">
+        <label>Playback mode</label>
+        <select id="set-playback">
+          <option value="queue">queue — tips play in turn</option>
+          <option value="override">override — newest tip fires now</option>
+        </select>
+      </div>
+      <div class="set-field">
+        <label>When the queue is full</label>
+        <select id="set-trim">
+          <option value="drop_oldest">drop oldest</option>
+          <option value="drop_newest">reject new tip</option>
+          <option value="compress">compress durations</option>
+        </select>
+      </div>
+      <div class="set-field">
+        <label>Alert below this many sats — off</label>
+        <input type="number" id="set-alert-min" min="0" step="1" />
+      </div>
+      <div class="set-field">
+        <label>Session goal (sats, empty = off)</label>
+        <input type="number" id="set-goal" min="0" step="1" placeholder="off" />
+      </div>
+      <div class="set-field set-check">
+        <input type="checkbox" id="set-show-goal" />
+        <label for="set-show-goal" style="margin:0">show goal bar in overlay</label>
+      </div>
+      <div class="set-field">
+        <label>Overlay accent</label>
+        <input type="color" id="set-accent" />
+      </div>
+      <div class="set-field set-check">
+        <input type="checkbox" id="set-sound" />
+        <label for="set-sound" style="margin:0">alert sound</label>
+      </div>
+    </div>
+    <div class="set-field" style="margin-top:14px">
+      <label>Tip rules (JSON — validated on save)</label>
+      <textarea id="set-rules" spellcheck="false"></textarea>
+    </div>
+    <button id="settings-save" type="button">Save settings</button>
+    <div id="settings-msg"></div>
   </section>
 </main>
 <script>
@@ -460,6 +544,128 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     uptimeEl.textContent = 'up ' + fmtDuration(elapsed);
   }
 
+  // ---- live settings editor ----
+  const setStrength = document.getElementById('set-strength');
+  const setDuration = document.getElementById('set-duration');
+  const setPlayback = document.getElementById('set-playback');
+  const setTrim = document.getElementById('set-trim');
+  const setAlertMin = document.getElementById('set-alert-min');
+  const setGoal = document.getElementById('set-goal');
+  const setShowGoal = document.getElementById('set-show-goal');
+  const setAccent = document.getElementById('set-accent');
+  const setSound = document.getElementById('set-sound');
+  const setRules = document.getElementById('set-rules');
+  const settingsMsg = document.getElementById('settings-msg');
+  let settingsLoaded = false;
+  let rawLimits = null; // full objects from GET — save merges over these
+  let rawAlerts = null; // so untouched fields (queue seconds etc.) aren't defaulted
+
+  setStrength.addEventListener('input', () => {
+    document.getElementById('set-strength-val').textContent = setStrength.value;
+  });
+  setDuration.addEventListener('input', () => {
+    document.getElementById('set-duration-val').textContent = setDuration.value;
+  });
+
+  async function loadSettings() {
+    let resp;
+    try {
+      resp = await fetch('/api/settings', { headers: tokenHeaders() });
+    } catch (e) { return; } // relay down: pollStatus already shows the banner
+    if (resp.status === 401) return; // token prompt happens on first save
+    if (!resp.ok) return;
+    const data = await resp.json();
+    setStrength.value = data.limits.max_strength;
+    document.getElementById('set-strength-val').textContent = data.limits.max_strength;
+    setDuration.value = data.limits.max_duration_s;
+    document.getElementById('set-duration-val').textContent = data.limits.max_duration_s;
+    setPlayback.value = data.limits.playback;
+    setTrim.value = data.limits.trim_strategy;
+    setAlertMin.value = data.alerts.min_sats;
+    setGoal.value = data.alerts.goal_sats == null ? '' : data.alerts.goal_sats;
+    setShowGoal.checked = data.alerts.show_goal !== false;
+    setAccent.value = data.alerts.accent;
+    setSound.checked = !!data.alerts.sound;
+    setRules.value = JSON.stringify(data.rules, null, 2);
+    rawLimits = data.limits;
+    rawAlerts = data.alerts;
+    settingsLoaded = true;
+  }
+
+  function settingsBody() {
+    let rules;
+    try {
+      rules = JSON.parse(setRules.value);
+    } catch (e) {
+      throw new Error('rules are not valid JSON: ' + e.message);
+    }
+    if (!Array.isArray(rules)) throw new Error('rules must be a JSON array');
+    const limits = Object.assign({}, rawLimits, {
+      max_strength: parseInt(setStrength.value, 10),
+      max_duration_s: parseFloat(setDuration.value),
+      playback: setPlayback.value,
+      trim_strategy: setTrim.value,
+    });
+    const alerts = Object.assign({}, rawAlerts, {
+      min_sats: parseInt(setAlertMin.value, 10) || 0,
+      goal_sats: setGoal.value === '' ? null : parseInt(setGoal.value, 10),
+      show_goal: setShowGoal.checked,
+      accent: setAccent.value,
+      sound: setSound.checked,
+    });
+    return { limits, alerts, rules };
+  }
+
+  document.getElementById('settings-save').addEventListener('click', async () => {
+    settingsMsg.className = '';
+    settingsMsg.textContent = '';
+    let body;
+    try {
+      body = settingsBody();
+    } catch (e) {
+      settingsMsg.className = 'err';
+      settingsMsg.textContent = e.message;
+      return;
+    }
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, tokenHeaders()),
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 401) {
+      const t = prompt('This relay requires a control token. Enter the relay token from your lovecash config:');
+      if (!t) return;
+      localStorage.setItem(TOKEN_KEY, t);
+      const retry = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Relay-Token': t },
+        body: JSON.stringify(body),
+      });
+      if (retry.status === 401) {
+        localStorage.removeItem(TOKEN_KEY);
+        settingsMsg.className = 'err';
+        settingsMsg.textContent = 'token rejected — check your config';
+        return;
+      }
+      if (!retry.ok) { settingsMsg.className = 'err'; settingsMsg.textContent = 'save failed (HTTP ' + retry.status + ')'; return; }
+      settingsMsg.className = 'ok';
+      settingsMsg.textContent = 'saved — live now, persisted to config.yaml';
+      return;
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      settingsMsg.className = 'err';
+      settingsMsg.textContent = 'save failed: ' + (err.detail ? JSON.stringify(err.detail) : 'HTTP ' + resp.status);
+      return;
+    }
+    const data = await resp.json();
+    settingsMsg.className = 'ok';
+    settingsMsg.textContent = data.persisted
+      ? 'saved — live now, persisted to config.yaml'
+      : 'saved — live now (no config file path known; not persisted)';
+  });
+
+  loadSettings();
   pollStatus();
   pollToys();
   setInterval(pollStatus, 2000);
