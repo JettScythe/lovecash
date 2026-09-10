@@ -23,7 +23,13 @@ export { le64 };
 // value must be plain JSON: hex strings + `<bigint: Xn>` tags. Token
 // category/commitment stay in libauth-native byte order (the wallet parses
 // them back with the same helpers).
-export function toRelaySourceOutput(so) {
+// NOTE: unlike the reference serializer, we KEEP the contract metadata.
+// Cashonize validates it (wizContractSchema: artifact.contractName,
+// abiFunction.name, redeemScript as hex) and uses it to substitute
+// placeholderSignature/placeholderPublicKey inside covenant unlocking
+// bytecode — without it the wallet treats the covenant input as P2PKH
+// and the tx fails on-chain with "false/empty top stack element".
+function toRelaySourceOutput(so) {
   const r = {
     outpointTransactionHash: binToHex(so.outpointTransactionHash),
     outpointIndex: so.outpointIndex,
@@ -42,6 +48,13 @@ export function toRelaySourceOutput(so) {
           ...(so.token.nft.commitment !== undefined && { commitment: binToHex(so.token.nft.commitment) }),
         },
       }),
+    };
+  }
+  if (so.contract) {
+    r.contract = {
+      abiFunction: { name: so.contract.abiFunction.name },
+      redeemScript: binToHex(so.contract.redeemScript),
+      artifact: { contractName: so.contract.artifact.contractName },
     };
   }
   return r;

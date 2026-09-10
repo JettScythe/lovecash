@@ -163,3 +163,25 @@ test('refund placeholder path: relay-safe request, both inputs flagged for signi
   assert.equal(receiptSo.unlockingBytecode, '');
   assert.equal(receiptSo.token.nft.commitment.length / 2, 28);
 });
+
+test('relay source output keeps contract metadata (Cashonize placeholder substitution)', async () => {
+  // Cashonize only does in-bytecode placeholder substitution when the
+  // sourceOutput carries contract metadata — without it the covenant
+  // input is mis-signed as P2PKH and the node rejects with
+  // "false/empty top stack element". Regression for the live failure.
+  const { provider, pot, viewer, params, addReceipt } = setup(60_000n);
+  const { request } = await buildRefundTx({
+    artifact,
+    contractParams: params,
+    potUtxo: apiShape(pot),
+    receiptUtxo: apiShape(addReceipt(10_000n)),
+    funderAddress: mockAddr(viewer.pkh),
+    deadline: DEADLINE,
+    provider,
+  });
+  const potSo = request.transaction.sourceOutputs[0];
+  assert.equal(potSo.contract.artifact.contractName, 'GoalShow');
+  assert.equal(potSo.contract.abiFunction.name, 'refund');
+  assert.equal(typeof potSo.contract.redeemScript, 'string');
+  assert.match(potSo.contract.redeemScript, /^[0-9a-f]+$/);
+});
