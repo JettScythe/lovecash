@@ -81,3 +81,27 @@ Build: artifact `goal_show.json` compiles via cashc 0.13.2
 - Deferred: parallel per-pledge UTXOs (kills the refund-censorship grief
   vector), state-machine seal/close phase (would make "goal met by
   deadline" consensus-true instead of honesty-framed).
+
+## Round 3–4 (same day): wallet pledging
+
+- **WizardConnect answer (user asked):** Riften Labs' HD-aware protocol
+  (Cauldron), reuses the same WC2-BCH transaction object + `inputPaths`.
+  Cashonize target uses BCH WalletConnect (wc2-bch-bcr); WizardConnect
+  is additive later.
+- **Contract change:** `pledge(bytes20 pledgerPkh)` — receipt commitment
+  only needs the address hash, so wallets sign plain P2PKH inputs (no
+  contract-input pubkey placeholder, which not all wallets fill).
+  Re-proven on chipnet end-to-end; node still rejects below-goal claims.
+- **Server APIs:** `/api/goal_pot` (pot UTXO + token data + deadline +
+  wc_project_id), `/api/utxos` (server-agnostic: plain listunspent +
+  our own raw-tx token parse), `/qr-data.png` (pairing QR).
+- **Browser flow:** `contracts/web/pledge_tx.mjs` (pure builder,
+  6 node tests incl. full mock-VM evaluation; 31/31 node total) +
+  `pledge_ui.js` → 1.1MB esbuild bundle committed at
+  `lovecash/server/ui/static/pledge.bundle.js` (rebuild after every
+  cashc recompile — artifact is inlined).
+- **Manual gate before shipping to viewers:** real Cashonize pairing —
+  namespace/method assumptions (`bch_signTransaction`, account format,
+  placeholder P2PKH filling, broadcast semantics) are unverified without
+  a physical wallet + WC Cloud project id. WC pairing is in-memory
+  (page refresh = re-pair, deliberate).
