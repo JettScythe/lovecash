@@ -150,8 +150,8 @@ async def _init(config: str) -> None:
     if not detected:
         console.print(
             "[yellow]No toys detected (is the Lovense Connect app running "
-            "with Game Mode on?). Setting up rules manually — you can run "
-            "init again later once your toy is connected.[/]"
+            "with your toy connected?). Setting up rules manually — you "
+            "can run init again later once your toy is connected.[/]"
         )
         action = _prompt_action("What does your toy do?")
         all_rules = _build_rules(
@@ -303,8 +303,8 @@ async def _doctor(config: str) -> None:
     except Exception:
         table.add_row(
             "Lovense Connect",
-            "[yellow]not found — open the Lovense Connect app, connect your "
-            "toy, and enable Game Mode[/]",
+            "[yellow]not found — open the Lovense Connect app and connect "
+            "your toy[/]",
         )
 
     console.print(table)
