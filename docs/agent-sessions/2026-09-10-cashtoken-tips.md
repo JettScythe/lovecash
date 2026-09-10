@@ -47,12 +47,19 @@ research writeup commit from `agent/cashtokens-research`.
   vectors, synthetic tx parsing, per-category rule matching, watcher
   integration incl. require_conf gating)
 - `uv run python -m compileall lovecash` — pass
+- Live validation (post-implementation): lovecash's own `ElectrumClient`
+  against `fulcrum.jettscythe.xyz`, fetching raw hex via
+  `blockchain.transaction.get` (no verbose flag) for 177 real mainnet
+  txs from the 3 tip blocks, parsed with `bch/tokens.py`: **343 token
+  outputs found**, including mutable-NFT commitments and FT amounts near
+  the VM max (`72624976668141661`). No parse failures.
 
 ## Outcome
 
 Tests: pass (147)
 Lint: pass
 Build: pass (package rebuild via uv on each run)
+Live mainnet parse: pass (177/177 txs, 343 token outputs)
 
 ## Notes
 
