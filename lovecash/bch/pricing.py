@@ -61,6 +61,15 @@ class PriceFeed:
                 await self._task
             self._task = None
 
+    @property
+    def price_usd(self) -> float | None:
+        """Fresh verified price, or None (stale/unavailable)."""
+        if self._price is None or self._price <= 0:
+            return None
+        if time.monotonic() - self._fetched_at > self._cfg.max_staleness_seconds:
+            return None
+        return self._price
+
     def usd_to_sats(self, usd: float) -> int | None:
         if self._price is None or self._price <= 0:
             return None

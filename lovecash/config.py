@@ -118,6 +118,17 @@ class BchConfig(BaseModel):
         return list(self.servers)
 
 
+class AlertConfig(BaseModel):
+    """What the stream overlay shows and plays. Performer-configurable."""
+
+    show_amount: bool = True
+    show_memo: bool = True  # OP_RETURN memo text in alerts
+    sound: bool = True
+    min_sats: int = Field(default=0, ge=0)  # no alert pop below this
+    goal_sats: int | None = None  # set to enable the goal progress bar
+    accent: str = "#ff5c8a"  # overlay accent color
+
+
 class ServerConfig(BaseModel):
     enabled: bool = False
     bind_host: str = "127.0.0.1"
@@ -125,6 +136,7 @@ class ServerConfig(BaseModel):
     # Shared secret the performer uses to authenticate control routes.
     # Required when binding to a non-loopback address (enforced at startup).
     relay_token: str | None = None
+    alerts: AlertConfig = AlertConfig()
 
 
 class Settings(BaseSettings):

@@ -71,6 +71,9 @@ class Orchestrator:
     def current_address(self) -> str:
         return self._payment_source.current_address()
 
+    def current_price_usd(self) -> float | None:
+        return self._payment_source.current_price_usd()
+
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state
         for obs in self._status_observers:

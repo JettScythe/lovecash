@@ -97,6 +97,10 @@ class PaymentSource(TriggerSource):
     def current_address(self) -> str:
         return self._deriver.address(self._next_index)
 
+    def current_price_usd(self) -> float | None:
+        """Fresh verified BCH/USD price, or None when unavailable."""
+        return self._price_feed.price_usd if self._price_feed is not None else None
+
     def _our_addresses(self) -> set[str]:
         addrs = {self._deriver.address(i) for i in self._sh_to_index.values()}
         return {a.split(":")[-1] for a in addrs}

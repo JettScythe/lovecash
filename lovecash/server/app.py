@@ -1,9 +1,12 @@
 import asyncio
 import logging
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from fastapi.websockets import WebSocketDisconnect
@@ -13,10 +16,54 @@ from lovecash.config import Settings
 from lovecash.core.orchestrator import Orchestrator
 from lovecash.server.relay import RelayHub
 from lovecash.server.templates import OVERLAY_HTML
+from lovecash.triggers.events import TriggerEvent
 
 log = logging.getLogger("lovecash.server")
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+class SessionStats:
+    """In-memory tally of credited tips for the overlay and dashboard."""
+
+    def __init__(self, max_recent: int = 50) -> None:
+        self.started_at = time.time()
+        self.total_sats = 0
+        self.count = 0
+        self.top_sats = 0
+        self.recent: deque[dict] = deque(maxlen=max_recent)
+        self._by_id: dict[str, dict] = {}
+
+    def record_tip(self, event: TriggerEvent, usd: float | None) -> None:
+        if event.kind != "payment":
+            return
+        self.total_sats += event.amount_sats
+        self.count += 1
+        self.top_sats = max(self.top_sats, event.amount_sats)
+        entry = {
+            "id": event.txid,
+            "amount_sats": event.amount_sats,
+            "usd": round(event.amount_sats / 1e8 * usd, 2) if usd else None,
+            "memo": event.memo,
+            "status": "active",
+            "at": time.time(),
+        }
+        self.recent.appendleft(entry)
+        self._by_id[event.txid] = entry
+
+    def record_status(self, tip_id: str, status: str) -> None:
+        entry = self._by_id.get(tip_id)
+        if entry is not None:
+            entry["status"] = status
+
+    def snapshot(self) -> dict:
+        return {
+            "started_at": self.started_at,
+            "total_sats": self.total_sats,
+            "count": self.count,
+            "top_sats": self.top_sats,
+            "recent": list(self.recent),
+        }
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -30,13 +77,49 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     hub = RelayHub()
+    stats = SessionStats()
+    alerts = settings.server.alerts
     orchestrator = Orchestrator(settings)
-    orchestrator.add_observer(hub.broadcast_event)
+
+    async def _on_event(event: TriggerEvent) -> None:
+        """Credited tips: record stats, broadcast the alert (config-shaped)
+        and the running totals for the goal bar."""
+        if event.kind != "payment":
+            return
+        price = orchestrator.current_price_usd()
+        stats.record_tip(event, price)
+        if event.amount_sats >= alerts.min_sats:
+            usd = round(event.amount_sats / 1e8 * price, 2) if price else None
+            await hub.broadcast(
+                {
+                    "type": "tip",
+                    "data": {
+                        "amount_sats": event.amount_sats,
+                        "txid": event.txid,
+                        "confirmations": event.confirmations,
+                        "usd": usd,
+                        "memo": event.memo,
+                    },
+                }
+            )
+        await hub.broadcast(
+            {
+                "type": "stats",
+                "data": {
+                    "total_sats": stats.total_sats,
+                    "count": stats.count,
+                    "goal_sats": alerts.goal_sats,
+                },
+            }
+        )
+
+    orchestrator.add_observer(_on_event)
 
     async def _on_status(state) -> None:
         await hub.broadcast({"type": "status", "data": {"connection": state}})
 
     async def _on_tip_status(tip_id: str, status: str, extra: dict) -> None:
+        stats.record_status(tip_id, status)
         await hub.broadcast(
             {"type": "tip_status", "data": {"id": tip_id, "status": status, **extra}}
         )
@@ -58,6 +141,9 @@ def create_app(settings: Settings) -> FastAPI:
         await orchestrator.shutdown()
 
     app = FastAPI(title="lovecash relay", lifespan=lifespan)
+    app.state.orchestrator = orchestrator
+    app.state.hub = hub
+    app.state.stats = stats
 
     def auth(request: Request, x_relay_token: str | None = Header(default=None)) -> None:
         token = settings.server.relay_token
@@ -85,6 +171,42 @@ def create_app(settings: Settings) -> FastAPI:
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
         }
+
+    @app.get("/api/status")
+    async def api_status() -> dict:
+        """Everything the performer dashboard needs in one poll."""
+        return {
+            "ok": True,
+            "stopped": orchestrator.safety.stopped,
+            "connection": orchestrator.connection_state,
+            "address": orchestrator.current_address(),
+            "price_usd": orchestrator.current_price_usd(),
+            "stats": stats.snapshot(),
+            "alerts": alerts.model_dump(),
+        }
+
+    @app.get("/api/toys")
+    async def api_toys() -> dict:
+        """Proxy the local Lovense Connect /GetToys for the dashboard."""
+        cfg = settings.lovense
+        scheme = "https" if cfg.use_https else "http"
+        try:
+            # Lovense Connect's local API uses a self-signed cert.
+            async with httpx.AsyncClient(verify=False, timeout=4) as hc:  # noqa: S501
+                resp = await hc.get(f"{scheme}://{cfg.host}:{cfg.port}/GetToys")
+            data = resp.json().get("data", {}) or {}
+            toys = [
+                {
+                    "id": tid,
+                    "name": t.get("name", "Unknown"),
+                    "online": t.get("status") == 1,
+                    "battery": t.get("battery"),
+                }
+                for tid, t in data.items()
+            ]
+            return {"ok": True, "toys": toys}
+        except Exception:
+            return {"ok": False, "toys": []}
 
     # --- OBS-facing endpoints (no auth: read-only, no funds touched) ---
 
