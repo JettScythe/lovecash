@@ -3,10 +3,12 @@ import logging
 import random
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
+from pathlib import Path
 
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.pricing import PriceFeed
+from lovecash.bch.state import StateStore, default_state_dir
 from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import BchConfig
 from lovecash.triggers.base import EmitFn, TriggerSource
@@ -29,6 +31,7 @@ class PaymentSource(TriggerSource):
         on_tip_status: TipStatusFn | None = None,
         client_factory=None,
         verifier_factory=None,
+        state_path: Path | None = None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
@@ -42,16 +45,20 @@ class PaymentSource(TriggerSource):
         self._deriver: XpubDeriver = XpubDeriver(cfg.xpub, cfg.derivation_branch)
         self._next_index = 0
         self._sh_to_index: dict[str, int] = {}
-        # FIFO-bounded dedup of credited txids. The cap only matters past
-        # ~200k tips in one process lifetime; trimming warns loudly.
-        self._seen: dict[str, None] = {}
+        # Persisted across restarts (see bch/state.py). Mutate ONLY via
+        # _mark_seen/_mark_pending/_clear_pending so every change lands
+        # on disk — in-memory-only state is how offline tips get missed
+        # or, worse, credited twice.
+        self._state = StateStore(
+            state_path
+            or default_state_dir() / f"state-{cfg.xpub[-8:]}.json",
+            cfg.xpub[-8:],
+        )
+        self._state_existed = self._state.load()
+        self._seen = self._state.seen
+        self._pending_conf = self._state.pending_conf
+        self._pending_addrs = self._state.pending_addrs
         self._verifying: set[str] = set()
-        # txid -> scripthash for tips announced "confirming". Keeps the
-        # tip's address watched (even after it rotates out of the address
-        # window or the connection re-establishes) until the block lands,
-        # and stops repeat announcements / repeat verification runs.
-        self._pending_conf: dict[str, str] = {}
-        self._pending_addrs: dict[str, int] = {}
         self._verify_tasks: set[asyncio.Task] = set()
         self._verifier_factory = verifier_factory
         self._price_feed = PriceFeed(cfg.pricing) if cfg.pricing.enabled else None
@@ -112,16 +119,24 @@ class PaymentSource(TriggerSource):
 
     async def _subscribe_all(self) -> None:
         client = self._require_client()
-        self._sh_to_index.clear()
+        # Extend the map over the fresh window, then (re-)subscribe to
+        # EVERY watched address — including ones that rotated out of the
+        # window. A new connection has no subscriptions, and dropping
+        # rotated-out addresses silently missed late payers tipping an
+        # older QR after a reconnect.
         for i in range(self._next_index, self._next_index + self._cfg.gap_limit):
-            sh = self._deriver.scripthash(i)
-            self._sh_to_index[sh] = i
-            await client.subscribe_scripthash(sh)
-        # Tips still waiting on a confirmation keep their address watched
-        # even after it rotated out of the window or we reconnected.
+            self._sh_to_index.setdefault(self._deriver.scripthash(i), i)
         for sh, i in self._pending_addrs.items():
-            self._sh_to_index[sh] = i
+            self._sh_to_index.setdefault(sh, i)
+        for sh in list(self._sh_to_index):
             await client.subscribe_scripthash(sh)
+
+    def _watch_used_range(self) -> None:
+        """Map every used address below the window (no subscriptions —
+        _subscribe_all covers them). Replay and _sum_to_us both need
+        these present."""
+        for i in range(self._next_index):
+            self._sh_to_index.setdefault(self._deriver.scripthash(i), i)
 
     async def _extend_window(self) -> None:
         client = self._require_client()
@@ -169,7 +184,9 @@ class PaymentSource(TriggerSource):
 
         if not self._primed:
             self._next_index = await self._discover_start_index()
+            self._watch_used_range()
             await self._subscribe_all()
+            await self._replay_or_seed(emit)
             self._primed = True
         else:
             await self._subscribe_all()
@@ -194,22 +211,60 @@ class PaymentSource(TriggerSource):
             await client.close()
         return True
 
+    async def _replay_or_seed(self, emit) -> None:
+        """First session only: reconcile tips that arrived while offline.
+
+        With a valid state file, credit anything it has not seen (tier
+        rules apply as usual). Without one there is no way to tell a
+        missed tip from an already-credited one, so seed the seen-set
+        from current history WITHOUT emitting — the fail-safe default is
+        to never fire the toy without fresh payment evidence.
+        """
+        client = self._require_client()
+        seeding = not self._state_existed
+        replayed = 0
+        for i in range(self._next_index):  # the used range below the window
+            sh = self._deriver.scripthash(i)
+            history = await client.call("blockchain.scripthash.get_history", sh) or []
+            for item in history:
+                txid = item["tx_hash"]
+                if txid in self._seen:
+                    continue
+                if seeding:
+                    self._seen[txid] = None  # assume already handled
+                    continue
+                await self._process_tx(txid, item.get("height", 0), emit, i, sh)
+                replayed += 1
+        self._state.save()
+        if seeding and self._seen:
+            log.info(
+                "State initialized: %d historical tx(s) assumed already handled",
+                len(self._seen),
+            )
+        elif replayed:
+            log.info("Credited %d tip(s) received while offline", replayed)
+
     def _mark_seen(self, txid: str) -> None:
         self._seen[txid] = None
         if len(self._seen) > 200_000:
             evicted = next(iter(self._seen))
             del self._seen[evicted]
             log.warning("seen-set full — evicted oldest txid %s", evicted[:12])
+        self._state.save()
 
     def _mark_pending(self, txid: str, sh: str, index: int | None) -> None:
         self._pending_conf[txid] = sh
         if index is not None:
             self._pending_addrs[sh] = index
+        self._state.save()
 
     def _clear_pending(self, txid: str) -> None:
         sh = self._pending_conf.pop(txid, None)
-        if sh is not None and sh not in self._pending_conf.values():
+        if sh is None:
+            return
+        if sh not in self._pending_conf.values():
             self._pending_addrs.pop(sh, None)
+        self._state.save()
 
     async def _scan_one(self, sh: str, emit) -> None:
         client = self._require_client()

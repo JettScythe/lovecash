@@ -157,6 +157,13 @@ public receiving address. Control endpoints require the relay token.
 Small tips can act on 0-conf; tips above `zeroconf_max_sats` wait for a
 confirmation, which you tune in config.
 
+lovecash remembers which tips it has already credited in a small state
+file (`~/.lovecash/state-<xpub-tail>.json`, override with
+`LOVECASH_STATE_DIR`). That's how tips sent while it was offline get
+credited on the next start — and why credited tips never fire twice.
+It stores txids only; delete it to start fresh (offline tips during the
+gap are then skipped rather than risk firing twice).
+
 ## Self-hosting the relay
 
 ```bash
