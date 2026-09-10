@@ -27,7 +27,7 @@ const bchtest = (pkh, tokens = false) => {
   return typeof r === 'string' ? r : r.address;
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const txids = { A: {}, B: {} };
+const txids = { A: {}, B: {}, deploy: {} };
 const logTx = (inst, step) => (res) => { const txid = res?.txid ?? res; txids[inst][step] = txid; console.log(`[${inst}] ${step}: ${EXPLORER}${txid}`); return txid; };
 
 function loadPerformer() {
@@ -113,6 +113,33 @@ async function genesis(changeFrom, inst) {
 
 const newContract = (goalSats, deadline, categoryHex) =>
   new Contract(artifact, [performer.pkh, goalSats, BigInt(deadline), hexToBin(categoryHex).reverse()], { provider });
+
+// --deploy: ONE fresh long-lived pot for manual wallet testing, then print
+// everything the dapp config needs and exit.
+if (process.argv.includes('--deploy')) {
+  const height = await provider.getBlockHeight();
+  const gen = await genesis(null, 'deploy');
+  const contract = newContract(50_000n, height + 100_000, gen.category);
+  const seedTxid = await new TransactionBuilder({ provider })
+    .addInput(gen.mintNft, performer.sig.unlockP2PKH())
+    .addInput(gen.change, performer.sig.unlockP2PKH())
+    .addOutput({ to: contract.tokenAddress, amount: 10_000n, token: { category: gen.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
+    .addOutput({ to: p2pkhLock(performer.pkh), amount: gen.change.satoshis + NFT_DUST - 10_000n - FEE })
+    .send().then(logTx('deploy', 'seed'));
+  const pot = await waitForUtxo(provider, contract.tokenAddress, (u) => u.txid === seedTxid, 'deployed pot');
+  if (pot.token?.nft?.capability !== 'minting') exit('deployed pot is missing its minting NFT');
+  console.log(JSON.stringify({
+    categoryDisplayHex: gen.category,
+    categoryRawHex: binToHex(hexToBin(gen.category).reverse()),
+    performerPkh: binToHex(performer.pkh),
+    potTokenAddress: contract.tokenAddress,
+    potAddress: contract.address,
+    seedTxid,
+    genesisTxid: txids.deploy.genesis,
+    currentHeight: height,
+  }, null, 2));
+  process.exit(0);
+}
 
 // ---------- Instance A: goal met -> claim ----------
 console.log('\n--- instance A (goal 8000, deadline 8000000) ---');

@@ -15,7 +15,7 @@ console.log("addr:", encodeCashAddress({ prefix: CashAddressNetworkPrefix.testne
 console.log("token addr:", encodeCashAddress({ prefix: CashAddressNetworkPrefix.testnet, type: CashAddressType.p2pkhWithTokens, payload: pkh }).address);
 
 // Instance B pot: goal 100000, deadline 1, category = A's seed txid (display)
-const catDisplay = "4ab90f333e644bb8124899ff6411551b94c587fe0f50b35aa003d47c2a806a5a";
+const catDisplay = "db2dfbfdffbfb7cb6f50fbc7d4335157cd77291b78adc26ea2de37e9877082b8";
 const catRaw = binToHex(hexToBin(catDisplay).reverse());
 const c = new Contract(artifact, [binToHex(pkh), 100000n, 1n, catRaw], { provider: new MockNetworkProvider() });
 console.log("pot B token address:", c.tokenAddress);

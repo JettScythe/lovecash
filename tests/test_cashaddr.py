@@ -61,7 +61,9 @@ def test_p2sh32_token_aware_same_script():
     assert kind == 3
     assert len(h) == 32
     assert to_script(P2SH32) == to_script(P2SH32_TOKADDR)
-    assert to_script(P2SH32) == b"\xa9\x20" + h + b"\x87"
+    # P2SH32 uses OP_HASH256 (0xaa) — cross-checked against a real
+    # cashscript covenant UTXO on chipnet.
+    assert to_script(P2SH32) == b"\xaa\x20" + h + b"\x87"
 
 
 def test_p2sh32_round_trip_reencode():

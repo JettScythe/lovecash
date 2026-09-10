@@ -10,7 +10,7 @@ bch:
   xpub: "xpub6Bfz1QGPd74g58ocw39DcspVEYxCuSHHhxF2i6XtEBFnWEvv1HoCbcff2R2M18AfXv3RhA5XcLe6ZEi1mj6sD7RED2nERSZjTUZsKPssnCn"
   servers:
     - host: "chipnet.imaginary.cash"
-      port: 50004
+      port: 50002
       ssl: true
       tls_verify: true
 server:
@@ -18,8 +18,8 @@ server:
   bind_host: "127.0.0.1"
   bind_port: 8080
 goal_show:
-  address: "bchtest:rvlfdw3w6f6y7va78uf62kmuhrd62m7e6aaaqzx7s2rjyas4q79ukyxse7z8s"
-  goal_sats: 100000
-  deadline: 1
+  address: "bchtest:rvud5m27y2x2hfchame90qu9n9phu2nphuyxsec2gj00u73us2ur2fppezgql"
+  goal_sats: 50000
+  deadline: 422981
   performer_pkh: "3b3c112959f3a374c5a00a22affd722c123653c7"
 rules: []

@@ -122,12 +122,15 @@ def encode_p2pkh(
 
 def to_script(address: str) -> bytes:
     """Locking bytecode (scriptPubKey) for an address. Token-aware kinds
-    2/3 share the scripts of kinds 0/1."""
+    2/3 share the scripts of kinds 0/1. P2SH20 uses OP_HASH160; P2SH32
+    (covenants) uses OP_HASH256 per the 2023 upgrade."""
     kind, h = decode(address)
     if kind in (0, 2):
         return b"\x76\xa9\x14" + h + b"\x88\xac"
     if kind in (1, 3):
-        return b"\xa9" + bytes([len(h)]) + h + b"\x87"  # P2SH20 / P2SH32
+        if len(h) == 32:
+            return b"\xaa\x20" + h + b"\x87"  # P2SH32: OP_HASH256
+        return b"\xa9" + bytes([len(h)]) + h + b"\x87"  # P2SH20: OP_HASH160
     raise ValueError(f"Unsupported address kind {kind}")
 
 
