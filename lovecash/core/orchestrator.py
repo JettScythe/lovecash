@@ -108,6 +108,9 @@ class Orchestrator:
     async def current_height(self) -> int:
         return await self._payment_source.current_height()
 
+    async def pot_balance_live(self) -> int | None:
+        return await self._payment_source.pot_balance_live()
+
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state
         for obs in self._status_observers:

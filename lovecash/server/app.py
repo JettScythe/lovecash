@@ -366,13 +366,16 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         if not settings.goal_show:
             return {"configured": False}
         gs = settings.goal_show
+        # Live query, not the notification cache: the pledge/refund flow
+        # builds against this and a stale value builds a stale tx.
+        live = await orchestrator.pot_balance_live()
         return {
             "configured": True,
             "address": gs.address,
             "goal_sats": gs.goal_sats,
             "deadline": gs.deadline,
             "performer_pkh": gs.performer_pkh,
-            "balance_sats": orchestrator.pot_balance,
+            "balance_sats": live if live is not None else orchestrator.pot_balance,
             "wc_chain": gs.resolved_wc_chain,
             "current_height": await orchestrator.current_height(),
             "utxo": await orchestrator.pot_utxo(),

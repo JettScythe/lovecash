@@ -314,6 +314,25 @@ class PaymentSource(TriggerSource):
         fund the viewer side of a covenant transaction."""
         return await self._listunspent(to_scripthash(address))
 
+    async def pot_balance_live(self) -> int | None:
+        """Fresh pot balance from the server (not the notification cache).
+        None when no goal show is configured or the query fails."""
+        if self._pot_sh is None or self._client is None:
+            return None
+        try:
+            try:
+                bal = await self._client.call(
+                    "blockchain.scripthash.get_balance", self._pot_sh, "include_tokens"
+                )
+            except Exception:
+                bal = await self._client.call(
+                    "blockchain.scripthash.get_balance", self._pot_sh
+                )
+            return int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
+        except Exception as exc:
+            log.warning("live pot balance failed: %s", exc)
+            return None
+
     async def current_height(self) -> int:
         client = self._require_client()
         hdr = await client.call("blockchain.headers.subscribe")

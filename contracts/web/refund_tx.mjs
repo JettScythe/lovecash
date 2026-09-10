@@ -75,7 +75,11 @@ export async function buildRefundTx({
   const fee = BigInt(feeSats) <= maxFee ? BigInt(feeSats) : maxFee;
   const payout = amount + RECEIPT_DUST - fee;
 
-  const net = provider ?? new ElectrumNetworkProvider('mainnet');
+  // Dummy provider: never network-called, but its network must match the
+  // address prefixes or the builder rejects bchtest outputs.
+  const net =
+    provider ??
+    new ElectrumNetworkProvider(funder.prefix === 'bchtest' ? 'chipnet' : 'mainnet');
   const contract = new Contract(
     artifact,
     [hexToBin(performerPkh), BigInt(goalSats), BigInt(contractDeadline), hexToBin(categoryDisplayHex).reverse()],
