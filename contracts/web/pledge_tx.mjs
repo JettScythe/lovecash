@@ -131,7 +131,11 @@ export async function buildPledgeTx({
   }
 
   // Provider is a dummy: never network-called, all source outputs supplied.
-  const net = provider ?? new ElectrumNetworkProvider('mainnet');
+  // Its network must still match the address prefixes, or the builder
+  // rejects bchtest: outputs as wrong-network.
+  const net =
+    provider ??
+    new ElectrumNetworkProvider(funder.prefix === 'bchtest' ? 'chipnet' : 'mainnet');
   const contract = new Contract(
     artifact,
     [hexToBin(performerPkh), BigInt(goalSats), BigInt(deadline), hexToBin(categoryDisplayHex).reverse()],
