@@ -500,13 +500,11 @@ dependencies = [
     { name = "rich" },
     { name = "segno" },
     { name = "typer" },
-    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
 server = [
     { name = "fastapi" },
-    { name = "jinja2" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -528,7 +526,6 @@ requires-dist = [
     { name = "gp-oracle", git = "https://github.com/jettscythe/gp-oracle.git?rev=251039fb7a8413268921370060941114a1b6a5c3" },
     { name = "hdwallet", specifier = ">=2.2,<3" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.5" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -536,7 +533,6 @@ requires-dist = [
     { name = "segno", specifier = ">=1.6" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.31" },
-    { name = "websockets", specifier = ">=13.0" },
 ]
 provides-extras = ["server"]
 

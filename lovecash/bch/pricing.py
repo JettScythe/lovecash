@@ -71,10 +71,7 @@ class PriceFeed:
         return self._price
 
     def usd_to_sats(self, usd: float) -> int | None:
-        if self._price is None or self._price <= 0:
+        price = self.price_usd
+        if price is None:
             return None
-        age = time.monotonic() - self._fetched_at
-        if age > self._cfg.max_staleness_seconds:
-            log.warning("Price %.0fs stale -> sats fallback", age)
-            return None
-        return int((usd / self._price) * 100_000_000)
+        return int((usd / price) * 100_000_000)

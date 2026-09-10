@@ -114,9 +114,6 @@ class BchConfig(BaseModel):
             raise ValueError("bch.servers must contain at least one server")
         return self
 
-    def server_pool(self) -> list[ElectrumServer]:
-        return list(self.servers)
-
 
 class AlertConfig(BaseModel):
     """What the stream overlay shows and plays. Performer-configurable."""
