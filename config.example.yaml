@@ -144,3 +144,20 @@ rules:
     action: Thrusting
     strength: 20
     duration_s: 30
+
+# --- CashToken tips (CHIP-2022-02) ---
+# Uncomment to accept token tips. When any token_rules exist, the tip QR
+# switches to a token-aware address so wallets can attach tokens.
+# `category` is the token's 64-hex category ID (find it on an explorer —
+# never trust a ticker alone). Amounts are BASE units (before decimals).
+# require_conf: true (default) waits for 1 confirmation before firing,
+# because a token's value isn't visible in its satoshi amount.
+# token_rules:
+#   - name: "fan-token-tease"
+#     category: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+#     min_amount: 100
+#     max_amount: 999
+#     require_conf: true
+#     action: Vibrate
+#     strength: 6
+#     duration_s: 5

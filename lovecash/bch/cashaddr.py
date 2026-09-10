@@ -45,7 +45,8 @@ def _hash160(data: bytes) -> bytes:
 
 
 def decode(address: str) -> tuple[int, bytes]:
-    """Return (kind, hash160). kind 0 = P2PKH, 1 = P2SH."""
+    """Return (kind, hash160). kind 0 = P2PKH, 1 = P2SH,
+    2 = P2PKH token-aware, 3 = P2SH20 token-aware (CHIP-2022-02)."""
     if ":" in address:
         prefix, payload = address.lower().split(":", 1)
     else:
@@ -64,13 +65,28 @@ def decode(address: str) -> tuple[int, bytes]:
     return kind, payload_bytes[1:21]
 
 
+def token_variant(address: str) -> str:
+    """Return the token-aware (kind 2) form of a P2PKH address.
+
+    Same hash, same script, same scripthash — the `z…` spelling just
+    tells wallets they may attach CashTokens to the output."""
+    if ":" in address:
+        prefix, _ = address.lower().split(":", 1)
+    else:
+        prefix = "bitcoincash"
+    kind, h160 = decode(address)
+    if kind == 2:
+        return address.lower()
+    if kind != 0:
+        raise ValueError(f"Cannot make a token-aware variant of kind {kind}")
+    return _encode(h160, version=0x10, prefix=prefix)
+
+
 # --- encode ---
 
 
-def encode_p2pkh(pubkey_hex: str, prefix: str = "bitcoincash") -> str:
-    """CashAddr-encode a P2PKH address from a compressed public key."""
-    h160 = _hash160(bytes.fromhex(pubkey_hex))
-    payload = bytes([0x00]) + h160  # version 0x00 = P2PKH, 160-bit
+def _encode(h160: bytes, version: int, prefix: str = "bitcoincash") -> str:
+    payload = bytes([version]) + h160
     data = _convertbits(payload, 8, 5, pad=True)
     checksum_input = _prefix_expand(prefix) + data + [0] * 8
     polymod = _polymod(checksum_input)
@@ -79,17 +95,29 @@ def encode_p2pkh(pubkey_hex: str, prefix: str = "bitcoincash") -> str:
     return f"{prefix}:{body}"
 
 
+def encode_p2pkh(
+    pubkey_hex: str, prefix: str = "bitcoincash", token_aware: bool = False
+) -> str:
+    """CashAddr-encode a P2PKH address from a compressed public key."""
+    h160 = _hash160(bytes.fromhex(pubkey_hex))
+    # version 0x00 = P2PKH, 0x10 = P2PKH token-aware (kind 2), both 160-bit
+    return _encode(h160, version=0x10 if token_aware else 0x00, prefix=prefix)
+
+
 # --- scripthash (for Electrum subscriptions) ---
+
+
+def to_script(address: str) -> bytes:
+    """Locking bytecode (scriptPubKey) for an address. Token-aware kinds
+    2/3 share the scripts of kinds 0/1."""
+    kind, h160 = decode(address)
+    if kind in (0, 2):
+        return b"\x76\xa9\x14" + h160 + b"\x88\xac"
+    if kind in (1, 3):
+        return b"\xa9\x14" + h160 + b"\x87"
+    raise ValueError(f"Unsupported address kind {kind}")
 
 
 def to_scripthash(address: str) -> str:
     """Electrum scripthash: sha256(scriptPubKey), byte-reversed, hex."""
-    kind, h160 = decode(address)
-    if kind == 0:
-        script = b"\x76\xa9\x14" + h160 + b"\x88\xac"
-    elif kind == 1:
-        script = b"\xa9\x14" + h160 + b"\x87"
-    else:
-        raise ValueError(f"Unsupported address kind {kind}")
-    digest = hashlib.sha256(script).digest()
-    return digest[::-1].hex()
+    return hashlib.sha256(to_script(address)).digest()[::-1].hex()

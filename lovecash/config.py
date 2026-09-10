@@ -5,7 +5,7 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from lovecash.models import TipRule
+from lovecash.models import TipRule, TokenRule
 
 
 class Playback(StrEnum):
@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     bch: BchConfig
     server: ServerConfig = ServerConfig()
     rules: list[TipRule] = []
+    token_rules: list[TokenRule] = []  # CashToken tips (CHIP-2022-02)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:

@@ -5,12 +5,15 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from pathlib import Path
 
+from lovecash.bch.cashaddr import to_script, token_variant
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.pricing import PriceFeed
 from lovecash.bch.state import StateStore, default_state_dir
+from lovecash.bch.tokens import parse_tx
 from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import BchConfig
+from lovecash.models import TokenReceipt, TokenRule
 from lovecash.triggers.base import EmitFn, TriggerSource
 from lovecash.triggers.events import PaymentTrigger
 from lovecash.triggers.status import ConnectionState, TipStatus
@@ -32,6 +35,7 @@ class PaymentSource(TriggerSource):
         client_factory=None,
         verifier_factory=None,
         state_path: Path | None = None,
+        token_rules: list[TokenRule] | None = None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
@@ -61,6 +65,14 @@ class PaymentSource(TriggerSource):
         self._verify_tasks: set[asyncio.Task] = set()
         self._verifier_factory = verifier_factory
         self._price_feed = PriceFeed(cfg.pricing) if cfg.pricing.enabled else None
+        self._token_rules: list[TokenRule] = []
+        self._require_conf_cats: set[str] = set()
+        self.set_token_rules(token_rules or [])
+
+    def set_token_rules(self, token_rules: list[TokenRule]) -> None:
+        """Hot-swap token rules (dashboard settings save)."""
+        self._token_rules = token_rules
+        self._require_conf_cats = {r.category for r in token_rules if r.require_conf}
 
     @property
     def source_id(self) -> str:
@@ -96,6 +108,14 @@ class PaymentSource(TriggerSource):
     def current_address(self) -> str:
         return self._deriver.address(self._next_index)
 
+    def current_tip_address(self) -> str:
+        """Address viewers should pay. Token-aware spelling when token
+        rules exist, so wallets will let viewers attach CashTokens."""
+        addr = self.current_address()
+        if self._token_rules:
+            return token_variant(addr)
+        return addr
+
     def current_price_usd(self) -> float | None:
         """Fresh verified BCH/USD price, or None when unavailable."""
         return self._price_feed.price_usd if self._price_feed is not None else None
@@ -103,6 +123,40 @@ class PaymentSource(TriggerSource):
     def _our_addresses(self) -> set[str]:
         addrs = {self._deriver.address(i) for i in self._sh_to_index.values()}
         return {a.split(":")[-1] for a in addrs}
+
+    def _our_scripts(self) -> set[bytes]:
+        return {
+            to_script(self._deriver.address(i)) for i in self._sh_to_index.values()
+        }
+
+    def _extract_token_receipts(self, raw_hex: str) -> list[TokenReceipt]:
+        """Token outputs paying our addresses, from the raw tx hex.
+
+        Observer-only: any parse failure degrades to "no tokens" — the
+        sats path (verbose decode) is untouched by this parser.
+        """
+        try:
+            outputs = parse_tx(bytes.fromhex(raw_hex))
+        except Exception as exc:
+            log.warning("token parse failed, ignoring tokens: %s", exc)
+            return []
+        ours = self._our_scripts()
+        return [
+            TokenReceipt(
+                category=o.token.category,
+                amount=o.token.amount,
+                nft_capability=o.token.nft_capability,
+                commitment=o.token.commitment.hex(),
+            )
+            for o in outputs
+            if o.token is not None and o.script in ours
+        ]
+
+    async def _token_receipts(self, client: ElectrumClient, txid: str) -> list[TokenReceipt]:
+        if not self._token_rules:
+            return []
+        raw = await client.call("blockchain.transaction.get", txid)
+        return self._extract_token_receipts(raw)
 
     def _default_factory(self, host, port, ssl, tls_verify) -> ElectrumClient:
         return ElectrumClient(
@@ -197,7 +251,7 @@ class PaymentSource(TriggerSource):
 
         await self._status(ConnectionState.CONNECTED)
         if self._on_address:
-            await self._on_address(self.current_address(), self._next_index)
+            await self._on_address(self.current_tip_address(), self._next_index)
         try:
             while not self._stopped:
                 notif = await client.next_notification()
@@ -322,7 +376,7 @@ class PaymentSource(TriggerSource):
         return amount_sats, memo
 
     async def _emit_trigger(
-        self, txid, amount_sats, confirmations, memo, emit, index
+        self, txid, amount_sats, confirmations, memo, emit, index, tokens=None
     ) -> None:
         trig = PaymentTrigger(
             source_id=self.source_id,
@@ -330,31 +384,57 @@ class PaymentSource(TriggerSource):
             amount_sats=amount_sats,
             confirmations=confirmations,
             memo=memo,
+            tokens=tokens or [],
         )
-        log.info("emitting trigger: %d sats", amount_sats)
+        log.info(
+            "emitting trigger: %d sats, %d token receipt(s)",
+            amount_sats,
+            len(tokens or []),
+        )
         await emit(trig)
         if index is not None and index >= self._next_index:
             self._next_index = index + 1
             await self._extend_window()
             if self._cfg.rotate_on_payment and self._on_address:
-                await self._on_address(self.current_address(), self._next_index)
+                await self._on_address(self.current_tip_address(), self._next_index)
                 log.info("Rotated overlay to index %d", self._next_index)
 
     async def _process_tx(self, txid, height, emit, index, sh) -> None:
         client = self._require_client()
         tx = await client.call("blockchain.transaction.get", txid, True)
         amount_sats, memo = self._sum_to_us(tx)
-        if amount_sats <= 0:
+        tokens = await self._token_receipts(client, txid)
+        if amount_sats <= 0 and not tokens:
             self._mark_seen(txid)
             return
         confirmations = tx.get("confirmations", 0 if height <= 0 else 1)
+
+        # Token tips flagged require_conf wait for a block — token value
+        # isn't visible in sats, so the sats tiers can't size the risk.
+        if (
+            tokens
+            and confirmations < 1
+            and any(t.category in self._require_conf_cats for t in tokens)
+        ):
+            if txid not in self._pending_conf:
+                self._mark_pending(txid, sh, index)
+                await self._announce_tip(
+                    txid,
+                    TipStatus.CONFIRMING,
+                    {
+                        "amount_sats": amount_sats,
+                        "reason": "token_conf",
+                        "tokens": [t.model_dump() for t in tokens],
+                    },
+                )
+            return
 
         # Instant tier: confirmed, or too small to be worth attacking.
         if confirmations >= 1 or amount_sats <= self._effective_zeroconf_sats():
             self._mark_seen(txid)
             self._clear_pending(txid)
             await self._emit_trigger(
-                txid, amount_sats, confirmations, memo, emit, index
+                txid, amount_sats, confirmations, memo, emit, index, tokens
             )
             return
 
@@ -386,13 +466,13 @@ class PaymentSource(TriggerSource):
             return
         self._verifying.add(txid)
         task = asyncio.create_task(
-            self._verify_then_emit(txid, tx, amount_sats, memo, emit, index, sh)
+            self._verify_then_emit(txid, tx, amount_sats, memo, emit, index, sh, tokens)
         )
         self._verify_tasks.add(task)
         task.add_done_callback(self._verify_tasks.discard)
 
     async def _verify_then_emit(
-        self, txid, tx, amount_sats, memo, emit, index, sh
+        self, txid, tx, amount_sats, memo, emit, index, sh, tokens
     ) -> None:
         try:
             verifier = (self._verifier_factory or self._make_verifier)()
@@ -400,7 +480,7 @@ class PaymentSource(TriggerSource):
             if outcome is Outcome.CREDIT:
                 self._mark_seen(txid)
                 self._clear_pending(txid)
-                await self._emit_trigger(txid, amount_sats, 0, memo, emit, index)
+                await self._emit_trigger(txid, amount_sats, 0, memo, emit, index, tokens)
             else:
                 # Refused once: wait for the block, don't verify again.
                 self._mark_pending(txid, sh, index)

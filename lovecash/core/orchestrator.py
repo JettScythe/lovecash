@@ -37,7 +37,7 @@ class Orchestrator:
         self.router = router
         self.safety = router.safety
 
-        self._engine = RulesEngine(settings.rules)
+        self._engine = RulesEngine(settings.rules, settings.token_rules)
         self.sources: list[TriggerSource] = []
         self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
 
@@ -46,12 +46,17 @@ class Orchestrator:
             on_status=self._broadcast_status,
             on_address=self._broadcast_address,
             on_tip_status=self._broadcast_tip_status,
+            token_rules=settings.token_rules,
         )
         self.add_source(self._payment_source)
 
-    def set_rules(self, rules) -> None:
+    def set_rules(self, rules, token_rules=None) -> None:
         """Hot-swap the tip rules (dashboard settings save)."""
-        self._engine = RulesEngine(rules)
+        if token_rules is not None:
+            self._payment_source.set_token_rules(token_rules)
+            self._engine = RulesEngine(rules, token_rules)
+        else:
+            self._engine = RulesEngine(rules, self._settings.token_rules)
 
     def add_source(self, source: TriggerSource) -> None:
         self.sources.append(source)
@@ -70,6 +75,10 @@ class Orchestrator:
 
     def current_address(self) -> str:
         return self._payment_source.current_address()
+
+    def current_tip_address(self) -> str:
+        """Viewer-facing address (token-aware when token rules exist)."""
+        return self._payment_source.current_tip_address()
 
     def current_price_usd(self) -> float | None:
         return self._payment_source.current_price_usd()

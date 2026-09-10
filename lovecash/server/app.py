@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from lovecash.bch.payment import build_uri, qr_png, qr_svg
 from lovecash.config import AlertConfig, Limits, Settings
 from lovecash.core.orchestrator import Orchestrator
-from lovecash.models import TipRule
+from lovecash.models import TipRule, TokenRule
 from lovecash.server.relay import RelayHub
 from lovecash.server.ui import DASHBOARD_HTML, TIP_HTML, render_overlay
 from lovecash.triggers.events import TriggerEvent
@@ -32,6 +32,7 @@ class SettingsUpdate(BaseModel):
 
     limits: Limits | None = None
     rules: list[TipRule] | None = None
+    token_rules: list[TokenRule] | None = None
     alerts: AlertConfig | None = None
 
 
@@ -201,7 +202,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "ok": True,
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
-            "address": orchestrator.current_address(),
+            "address": orchestrator.current_tip_address(),
             "price_usd": orchestrator.current_price_usd(),
             "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),
@@ -254,7 +255,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         message: str | None = Query(default=None, max_length=200),
     ) -> Response:
         uri = build_uri(
-            orchestrator.current_address(),
+            orchestrator.current_tip_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
             message=message,
@@ -267,7 +268,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         message: str | None = Query(default=None, max_length=200),
     ):
         uri = build_uri(
-            orchestrator.current_address(),
+            orchestrator.current_tip_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
             message=message,
@@ -281,7 +282,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
     ) -> dict:
         return {
             "uri": build_uri(
-                orchestrator.current_address(),
+                orchestrator.current_tip_address(),
                 amount_bch=Decimal(str(amount)) if amount else None,
                 message=message,
             )
@@ -307,6 +308,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         return {
             "limits": settings.limits.model_dump(),
             "rules": [r.model_dump() for r in settings.rules],
+            "token_rules": [r.model_dump() for r in settings.token_rules],
             "alerts": alerts.model_dump(),
             "persisted": config_path is not None,
         }
@@ -319,9 +321,16 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             _apply_in_place(settings.limits, body.limits)
             orchestrator.router.refresh_limits()  # per-toy controller copies
             applied.append("limits")
-        if body.rules is not None:
-            orchestrator.set_rules(body.rules)
-            settings.rules = body.rules
+        if body.rules is not None or body.token_rules is not None:
+            token_rules = (
+                body.token_rules
+                if body.token_rules is not None
+                else settings.token_rules
+            )
+            rules = body.rules if body.rules is not None else settings.rules
+            orchestrator.set_rules(rules, token_rules)
+            settings.rules = rules
+            settings.token_rules = token_rules
             applied.append("rules")
         if body.alerts is not None:
             _apply_in_place(alerts, body.alerts)
