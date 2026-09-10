@@ -3,7 +3,6 @@ import contextlib
 import json
 import logging
 import ssl
-from collections.abc import AsyncIterator
 from typing import Any
 
 log = logging.getLogger("lovecash.electrum")
@@ -13,11 +12,17 @@ class ElectrumClient:
     """Tiny async JSON-RPC client for the Electrum/Fulcrum protocol."""
 
     def __init__(
-        self, host: str, port: int, use_ssl: bool = True, heartbeat_s=30.0
+        self,
+        host: str,
+        port: int,
+        use_ssl: bool = True,
+        heartbeat_s=30.0,
+        tls_verify: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._ssl = use_ssl
+        self._tls_verify = tls_verify
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._id = 0
@@ -39,15 +44,21 @@ class ElectrumClient:
     def unwatch_dsproof(self, txid: str) -> None:
         self._dsproof_events.pop(txid, None)
 
+    def _ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.create_default_context()
+        if not self._tls_verify:
+            # Self-signed server the operator explicitly trusts. Without
+            # verification, a network MITM could inject fake tips.
+            log.warning("TLS certificate verification DISABLED for %s", self._host)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
     async def connect(self) -> None:
         # Guard against starting a second reader on a stale connection.
         if self._reader_task and not self._reader_task.done():
             await self.close()
-        ctx = None
-        if self._ssl:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+        ctx = self._ssl_context() if self._ssl else None
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, ssl=ctx
         )
@@ -135,7 +146,7 @@ class ElectrumClient:
         assert self._writer is not None
         self._id += 1
         req_id = self._id
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         payload = json.dumps({"id": req_id, "method": method, "params": list(params)})
         self._writer.write(payload.encode() + b"\n")
@@ -160,17 +171,6 @@ class ElectrumClient:
         if getter in done:
             return getter.result()
         raise ConnectionError("connection dropped while waiting")
-
-    async def notifications(self) -> AsyncIterator[dict]:
-        while True:
-            yield await self._notifications.get()
-
-    def drain_notifications(self) -> None:
-        while not self._notifications.empty():
-            try:
-                self._notifications.get_nowait()
-            except asyncio.QueueEmpty:
-                break
 
     async def close(self) -> None:
         self._closing = True

@@ -23,8 +23,3 @@ class RulesEngine:
         if out:
             log.info("Tip %d sats matched %d rule(s)", event.amount_sats, len(out))
         return out
-
-    # Keep single-result resolve for any legacy callers/tests.
-    def resolve(self, event) -> ToyCommand | None:
-        results = self.resolve_all(event)
-        return results[0][0] if results else None

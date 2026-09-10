@@ -16,6 +16,13 @@ from lovecash.safety import SafetyState
 XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_state_dir(tmp_path, monkeypatch):
+    """Watcher state persists across restarts; tests must not share it
+    (same xpub everywhere) or write to the real home directory."""
+    monkeypatch.setenv("LOVECASH_STATE_DIR", str(tmp_path))
+
+
 class FakeController:
     """Records commands instead of touching hardware."""
 

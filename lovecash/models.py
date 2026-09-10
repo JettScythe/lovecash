@@ -22,15 +22,6 @@ class ToyCommand(BaseModel):
     duration_s: float = Field(ge=0, le=3600)
 
 
-class TipEvent(BaseModel):
-    """A confirmed (or 0-conf) inbound payment to the watched address."""
-
-    txid: str
-    amount_sats: int = Field(ge=0)
-    confirmations: int = Field(ge=0)
-    memo: str | None = None
-
-
 class TipRule(BaseModel):
     """Performer-authored mapping from a tip range to a toy action."""
 
@@ -48,7 +39,7 @@ class TipRule(BaseModel):
             raise ValueError("max_sats must be >= min_sats")
         return self
 
-    def matches(self, tip: TipEvent) -> bool:
+    def matches(self, tip) -> bool:
         return self.min_sats <= tip.amount_sats <= self.max_sats
 
     def to_command(self) -> ToyCommand:

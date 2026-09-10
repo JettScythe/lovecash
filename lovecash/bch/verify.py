@@ -3,13 +3,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 
-from lovecash.bch.dsproof import Protection, analyze_protection
+from lovecash.bch.dsproof import Protection, TxFetcher, analyze_protection
+from lovecash.triggers.status import TipStatus
 
 log = logging.getLogger("lovecash.verify")
 
-TxFetcher = Callable[[str], Awaitable[dict]]
-DsproofGetter = Callable[[str], Awaitable[dict | None]]
-StatusEmit = Callable[[str, str, dict], Awaitable[None]]
+StatusEmit = Callable[[str, TipStatus, dict], Awaitable[None]]
 
 
 class Outcome(StrEnum):
@@ -65,7 +64,9 @@ class Verifier:
                 log.warning("Proof present at subscribe for %s -> conf", txid[:12])
                 return Outcome.NEEDS_CONF
 
-            await self._emit(txid, "verifying", {"window_seconds": self._window})
+            await self._emit(
+                txid, TipStatus.VERIFYING, {"window_seconds": self._window}
+            )
             try:
                 await asyncio.wait_for(proof_event.wait(), self._window)
                 return Outcome.NEEDS_CONF  # push fired = proof arrived
@@ -74,7 +75,7 @@ class Verifier:
         finally:
             self._unwatch(txid)
 
-    async def _emit(self, txid: str, status: str, extra: dict) -> None:
+    async def _emit(self, txid: str, status: TipStatus, extra: dict) -> None:
         if self._on_status is not None:
             try:
                 await self._on_status(txid, status, extra)

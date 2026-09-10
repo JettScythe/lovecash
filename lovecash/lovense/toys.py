@@ -111,8 +111,3 @@ CATEGORY_RULES: dict[ToyCategory, list[dict]] = {
         {"name": "intense", "min_sats": 50000, "strength": 14, "duration_s": 10},
     ],
 }
-
-
-def parse_action(raw: str) -> Action:
-    """Turn user free-text into a validated Action, or raise."""
-    return Action(raw.strip().capitalize())

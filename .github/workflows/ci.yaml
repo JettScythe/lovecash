@@ -27,5 +27,8 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Type check
+        run: uv run mypy
+
       - name: Test
         run: uv run --extra server pytest -v --tb=short

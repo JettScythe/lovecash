@@ -61,11 +61,17 @@ class PriceFeed:
                 await self._task
             self._task = None
 
-    def usd_to_sats(self, usd: float) -> int | None:
+    @property
+    def price_usd(self) -> float | None:
+        """Fresh verified price, or None (stale/unavailable)."""
         if self._price is None or self._price <= 0:
             return None
-        age = time.monotonic() - self._fetched_at
-        if age > self._cfg.max_staleness_seconds:
-            log.warning("Price %.0fs stale -> sats fallback", age)
+        if time.monotonic() - self._fetched_at > self._cfg.max_staleness_seconds:
             return None
-        return int((usd / self._price) * 100_000_000)
+        return self._price
+
+    def usd_to_sats(self, usd: float) -> int | None:
+        price = self.price_usd
+        if price is None:
+            return None
+        return int((usd / price) * 100_000_000)

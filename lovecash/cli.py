@@ -51,7 +51,7 @@ async def _detect_toys() -> list[tuple[str, str]]:
 
 
 def _prompt_action(label: str):
-    from lovecash.lovense.toys import parse_action
+    from lovecash.models import Action
 
     while True:
         raw = typer.prompt(
@@ -59,7 +59,7 @@ def _prompt_action(label: str):
             default="Vibrate",
         )
         try:
-            return parse_action(raw)
+            return Action(raw.strip().capitalize())
         except ValueError:
             console.print("[red]Unknown action. Pick one of the listed.[/]")
 
@@ -150,8 +150,8 @@ async def _init(config: str) -> None:
     if not detected:
         console.print(
             "[yellow]No toys detected (is the Lovense Connect app running "
-            "with Game Mode on?). Setting up rules manually — you can run "
-            "init again later once your toy is connected.[/]"
+            "with your toy connected?). Setting up rules manually — you "
+            "can run init again later once your toy is connected.[/]"
         )
         action = _prompt_action("What does your toy do?")
         all_rules = _build_rules(
@@ -225,6 +225,8 @@ async def _init(config: str) -> None:
         raise typer.Exit(code=1) from exc
 
     await Path(config).write_text(rendered)
+    # The xpub reveals your full address history — keep it owner-only.
+    await Path(config).chmod(0o600)
     console.print(f"[green]Wrote {config}.[/] Next: [bold]lovecash doctor[/]")
 
 
@@ -270,12 +272,13 @@ async def _doctor(config: str) -> None:
         table.add_row("xpub", f"[red]{exc}[/]")
 
     # 2. Electrum reachability
-    for server in settings.bch.server_pool():
+    for server in settings.bch.servers:
         try:
             c = ElectrumClient(
                 server.host,
                 server.port,
                 server.ssl,
+                tls_verify=server.tls_verify,
             )
             await asyncio.wait_for(c.connect(), timeout=8)
             await c.call("server.ping")
@@ -301,7 +304,8 @@ async def _doctor(config: str) -> None:
             )
     except Exception:
         table.add_row(
-            "Lovense Connect", "[yellow]not found — open the Lovense app and enable "
+            "Lovense Connect",
+            "[yellow]not found — open the Lovense Connect app and connect your toy[/]",
         )
 
     console.print(table)
@@ -331,6 +335,34 @@ def serve(
         )
     )
     uvicorn.run(app_instance, host=host, port=port)
+
+
+@app.command()
+def run(
+    config: str = typer.Option("config.yaml", "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Run the bridge without the OBS overlay relay (headless mode)."""
+    _setup_logging(verbose)
+    asyncio.run(_run(config))
+
+
+async def _run(config: str) -> None:
+    from lovecash.config import Settings
+    from lovecash.core.orchestrator import Orchestrator
+
+    settings = Settings.from_yaml(config)
+    orch = Orchestrator(settings)
+    console.print(
+        Panel.fit(
+            "Watching for tips (no overlay).\n[bold]Ctrl-C = panic stop + quit.[/]",
+            title="lovecash run",
+            style="magenta",
+        )
+    )
+    # Ctrl-C cancels this; Orchestrator.run's finally engages the panic
+    # stop, halts the toy, and closes connections.
+    await orch.run()
 
 
 @app.command()

@@ -40,7 +40,7 @@ class Limits(BaseModel):
     # falls back to dropping oldest.
     min_compressed_duration_s: float = Field(default=1.0, ge=0)
 
-    def for_toy(self, toy: ToyConfig) -> "Limits":
+    def for_toy(self, toy: ToyConfig) -> Limits:
         return self.model_copy(
             update={
                 "max_strength": toy.max_strength
@@ -72,6 +72,10 @@ class ElectrumServer(BaseModel):
     host: str
     port: int = 50002
     ssl: bool = True
+    # Verify the server's TLS certificate. On by default: without it a
+    # network MITM can inject fake tips. Disable only for a server you
+    # trust that uses a self-signed certificate.
+    tls_verify: bool = True
 
 
 class PricingConfig(BaseModel):
@@ -105,13 +109,21 @@ class BchConfig(BaseModel):
     pricing: PricingConfig = PricingConfig()
 
     @model_validator(mode="after")
-    def _require_servers(self) -> "BchConfig":
+    def _require_servers(self) -> BchConfig:
         if not self.servers:
             raise ValueError("bch.servers must contain at least one server")
         return self
 
-    def server_pool(self) -> list[ElectrumServer]:
-        return list(self.servers)
+
+class AlertConfig(BaseModel):
+    """What the stream overlay shows and plays. Performer-configurable."""
+
+    show_amount: bool = True
+    show_memo: bool = True  # OP_RETURN memo text in alerts
+    sound: bool = True
+    min_sats: int = Field(default=0, ge=0)  # no alert pop below this
+    goal_sats: int | None = None  # set to enable the goal progress bar
+    accent: str = "#ff5c8a"  # overlay accent color
 
 
 class ServerConfig(BaseModel):
@@ -121,6 +133,7 @@ class ServerConfig(BaseModel):
     # Shared secret the performer uses to authenticate control routes.
     # Required when binding to a non-loopback address (enforced at startup).
     relay_token: str | None = None
+    alerts: AlertConfig = AlertConfig()
 
 
 class Settings(BaseSettings):
@@ -133,6 +146,6 @@ class Settings(BaseSettings):
     rules: list[TipRule] = []
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Settings":
+    def from_yaml(cls, path: str | Path) -> Settings:
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls.model_validate(data)

@@ -9,8 +9,9 @@ from lovecash.lovense.protocol import ToyController
 from lovecash.models import ToyCommand
 from lovecash.safety import SafetyState
 from lovecash.triggers.events import ToyTarget
+from lovecash.triggers.status import TipStatus
 
-TipStatusFn = Callable[[str, str, dict], Awaitable[None]]
+TipStatusFn = Callable[[str, TipStatus, dict], Awaitable[None]]
 
 
 class ToyRouter:

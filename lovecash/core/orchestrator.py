@@ -6,18 +6,17 @@ from collections.abc import Awaitable, Callable
 from lovecash.config import Settings
 from lovecash.core.router import ToyRouter
 from lovecash.engine.rules import RulesEngine
-from lovecash.resolve import DirectResolver, PaymentResolver, Resolver
 from lovecash.safety import SafetyState
 from lovecash.triggers.base import TriggerSource
-from lovecash.triggers.events import TriggerEvent
+from lovecash.triggers.events import ToyTarget, TriggerEvent
 from lovecash.triggers.payment import PaymentSource
-from lovecash.triggers.status import ConnectionState
+from lovecash.triggers.status import ConnectionState, TipStatus
 
 log = logging.getLogger("lovecash.core")
 
 TriggerObserver = Callable[[TriggerEvent], Awaitable[None]]
 StatusObserver = Callable[[ConnectionState], Awaitable[None]]
-TipStatusObserver = Callable[[str, str, dict], Awaitable[None]]
+TipStatusObserver = Callable[[str, TipStatus, dict], Awaitable[None]]
 AddressObserver = Callable[[str, int], Awaitable[None]]
 
 
@@ -30,16 +29,15 @@ class Orchestrator:
         self._address_observers: list[AddressObserver] = []
         self.connection_state = ConnectionState.CONNECTED
 
-        self.safety = SafetyState(settings.limits.min_seconds_between_commands)
-        self.router = router or ToyRouter.from_settings(
-            settings, self.safety, on_tip_status=self._broadcast_tip_status
-        )
-        self.safety = self.router.safety
+        if router is None:
+            safety = SafetyState(settings.limits.min_seconds_between_commands)
+            router = ToyRouter.from_settings(
+                settings, safety, on_tip_status=self._broadcast_tip_status
+            )
+        self.router = router
+        self.safety = router.safety
 
-        self.resolvers: dict[str, Resolver] = {
-            "payment": PaymentResolver(RulesEngine(settings.rules)),
-            "direct": DirectResolver(),
-        }
+        self._engine = RulesEngine(settings.rules)
         self.sources: list[TriggerSource] = []
         self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
 
@@ -69,6 +67,9 @@ class Orchestrator:
     def current_address(self) -> str:
         return self._payment_source.current_address()
 
+    def current_price_usd(self) -> float | None:
+        return self._payment_source.current_price_usd()
+
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state
         for obs in self._status_observers:
@@ -78,7 +79,7 @@ class Orchestrator:
                 log.error("Status observer error: %s", exc)
 
     async def _broadcast_tip_status(
-        self, tip_id: str, status: str, extra: dict
+        self, tip_id: str, status: TipStatus, extra: dict
     ) -> None:
         for obs in self._tip_status_observers:
             try:
@@ -93,21 +94,15 @@ class Orchestrator:
             except Exception as exc:
                 log.error("Address observer error: %s", exc)
 
-    async def _emit(self, event: TriggerEvent) -> None:
-        await self._queue.put(event)
-
     async def _handle_event(self, event: TriggerEvent) -> None:
         for obs in self._observers:
             try:
                 await obs(event)
             except Exception as exc:
                 log.error("Observer error: %s", exc)
-        resolver = self.resolvers.get(event.kind)
-        if resolver is None:
-            return
-        tip_id = getattr(event, "txid", None)
-        for cmd, target in resolver.resolve(event):
-            await self.router.dispatch(cmd, target, tip_id=tip_id)
+        for cmd, toy in self._engine.resolve_all(event):
+            target = ToyTarget(toy_ids=[toy] if toy else [])
+            await self.router.dispatch(cmd, target, tip_id=event.txid)
 
     async def _consume(self) -> None:
         while True:
@@ -116,7 +111,7 @@ class Orchestrator:
     async def run(self) -> None:
         self.router.start()
         consumer = asyncio.create_task(self._consume())
-        tasks = [asyncio.create_task(s.run(self._emit)) for s in self.sources]
+        tasks = [asyncio.create_task(s.run(self._queue.put)) for s in self.sources]
         try:
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:

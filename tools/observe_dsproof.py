@@ -10,7 +10,8 @@ from lovecash.config import Settings
 
 async def main() -> None:
     s = Settings.from_yaml("config.yaml")
-    c = ElectrumClient(s.bch.electrum_host, s.bch.electrum_port, s.bch.electrum_ssl)
+    srv = s.bch.servers[0]
+    c = ElectrumClient(srv.host, srv.port, srv.ssl, tls_verify=srv.tls_verify)
     await c.connect()
     print("polling dsproof.list for a real double-spend proof...")
     while True:

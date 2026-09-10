@@ -59,16 +59,22 @@ bch:
 
   # Electrum/Fulcrum servers, tried in order with failover. At least one
   # required. All defaults below support DSProof.
+  # tls_verify checks the server's TLS certificate (on by default) —
+  # without it, someone on your network could inject fake tips. Only set
+  # false for a trusted server with a self-signed certificate.
   servers:
     - host: "fulcrum.jettscythe.xyz"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
     - host: "cashnode.bch.ninja"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
     - host: "blackie.c3-soft.com"
       port: 50002
-      use_ssl: true
+      ssl: true
+      tls_verify: true
 
   # Connection health / reconnection tuning. Defaults are sane; rarely
   # need changing.
@@ -95,5 +101,14 @@ server:
   bind_port: 8080
   relay_token: null # required if bind_host is public; protects
                                   # the /panic and /resume control endpoints
+
+  # Overlay alerts: what viewers see and hear when a tip lands.
+  alerts:
+    show_amount: true # show the tip amount in the alert
+    show_memo: true # show the tip's OP_RETURN memo text
+    sound: true # play a chime (bigger tips = bigger chime)
+    min_sats: 0 # tips below this count toward the goal but don't pop
+    goal_sats: null # set a satoshi target to show a goal progress bar
+    accent: "#ff5c8a" # overlay accent color
 
 {{ rules }}
