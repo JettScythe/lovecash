@@ -8,7 +8,13 @@ import { decodeCashAddress, encodeCashAddress, CashAddressType, hexToBin, binToH
 const RECEIPT_DUST = 800n; // token-output dust incl. 28-byte commitment
 const CHANGE_DUST = 546n;
 
-const le64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return new Uint8Array(b); };
+// 8-byte little-endian, browser-safe (no Node Buffer).
+const le64 = (n) => {
+  const b = new Uint8Array(8);
+  let v = BigInt(n);
+  for (let i = 0; i < 8; i++) { b[i] = Number(v & 0xffn); v >>= 8n; }
+  return b;
+};
 
 // Mirror of @wizardconnect/core's sourceOutputToRelay (present in
 // dist/protocols/hdwalletv1-serialize.js but NOT exported from the package).
