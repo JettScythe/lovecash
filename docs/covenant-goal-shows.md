@@ -8,10 +8,13 @@ refund. lovecash's role stays watch-only: display progress, trigger toys.
 ## Why a covenant
 
 Today's goal bar (`alerts.goal_sats`) is a promise: tips go to the
-performer regardless of whether the goal is met. A covenant makes the
-promise structural — funds are encumbered by contract rules, not by the
-performer's word. This matches lovecash's non-custodial model: the
-contract holds the funds, nobody holds keys.
+performer regardless of whether the goal is met. A covenant replaces part
+of that promise with structure — **abandonment protection**: funds in the
+pot can leave only as a whole-pot claim by the performer (goal met) or as
+individual refunds after the deadline (goal missed). The contract holds
+the funds; nobody holds keys. What it does NOT do is prove the goal was
+met by genuine audience demand — the performer can always self-fund the
+shortfall and claim (see Trust assumptions below).
 
 ## Contract sketch
 
@@ -21,30 +24,55 @@ One covenant instance per goal show. Parameters fixed at deployment:
 - `deadline` — block height or timestamp (`CLTV`-style check)
 - `performer_pkh` — where a met goal pays out
 
-**Pledging.** A viewer sends a pledge output to the covenant and receives
-back an immutable **receipt NFT** (same category, minted by the
-covenant's minting NFT held in the covenant itself). The receipt's
-commitment encodes the pledger's refund pubkey hash and pledge amount.
-Receipt = proof of pledge, spendable by the pledger's wallet.
+**Pledging.** A viewer pledges by spending the pot UTXO into a larger
+pot and receives back an immutable **receipt NFT** (same category,
+minted via the pot's minting NFT held in the covenant itself). The
+receipt's commitment encodes the pledger's refund pubkey hash and pledge
+amount. Receipt = proof of pledge, spendable by the pledger's wallet.
 
-**Claim (goal met).** After total pledged ≥ `goal_sats`, anyone can
-construct the settlement transaction spending all pledge outputs to the
-performer address. The covenant enforces: outputs pay `performer_pkh`,
-total input value ≥ goal, receipts are burned or returned. Settlement
-needs no lovecash involvement — it's anyone-can-build.
+**Claim (goal met).** Once the pot's value ≥ `goal_sats`, anyone can
+build the one-input settlement transaction paying the whole pot (minus
+fee) to `performer_pkh`; the minting NFT is burned with the pot.
+Settlement needs no lovecash involvement — it's anyone-can-build.
 
-**Refund (deadline passed, goal unmet).** After `deadline`, a pledge
-output + its receipt NFT can be spent back to the pledger's address
-encoded in the receipt commitment. Individual, permissionless refunds.
+**Refund (deadline passed, goal unmet).** After `deadline`, while the pot
+is below goal, the pot + one receipt NFT can be spent back to the
+pledger's address encoded in the receipt commitment. Individual,
+permissionless refunds, serialized on the pot UTXO.
+
+## Trust assumptions (v1)
+
+The covenant enforces abandonment protection, not honesty about demand:
+
+- **Performer self-funding.** A performer can always top up the pot with
+  their own sats and claim. Economically identical to the performer
+  tipping themselves — treated as a feature, not an attack; v1 adds no
+  state machine to prevent it.
+- **Genesis verification (hard assumption).** Pledgers (or the client
+  tooling) MUST verify that the goal-show category's genesis created
+  exactly one minting NFT and that it sits in the pot UTXO. A second
+  minting NFT lets its holder forge receipts and drain the pot via
+  refund. Note the covenant binds the category in raw serialized byte
+  order — the reverse of what wallets/explorers display.
+- **One category per show.** Receipts are bound to the token category,
+  not to a covenant instance. Reusing a category across shows lets old
+  receipts refund against a new show's pot. Footgun: don't.
+- **Serialized pot.** Pledges and refunds race on the single pot UTXO;
+  losers rebuild on the new pot. Fine against ordinary contention, but a
+  dedicated griefer with one small receipt can censor refunds at one
+  tx-fee per block. Parallel per-pledge UTXOs are the documented upgrade
+  path if contention ever matters.
 
 ## Hard problems (flagged honestly)
 
 1. **Refund UX.** No mainstream wallet knows how to spend a receipt NFT
    into a refund. Needs a small web refund tool (scan/paste txid → build
    + sign → broadcast). Without this, refunds are theoretical.
-2. **Settlement transaction size.** All pledge inputs in one tx — the
-   100 KB standardness cap bounds pledges per show (roughly a few
-   hundred). Fine for a cam show; document the cap.
+2. **Serialized refunds.** Settlement is one input (claim spends only the
+   pot), so the old 100 KB settlement-cap concern is gone. The real
+   scaling cost is refunds: N pledges = N serialized refund transactions
+   racing on the pot UTXO, plus the censoring vector above. Fine for a
+   cam show; document the limit.
 3. **Dust and fees.** Each pledge output needs dust + fee margin; the
    covenant must tolerate fee skimming on claim.
 4. **Covenant correctness is money-critical.** This contract holds real
