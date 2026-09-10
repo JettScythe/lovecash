@@ -3,7 +3,9 @@ import logging
 from contextlib import asynccontextmanager
 from decimal import Decimal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket
+from urllib.parse import urlsplit
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from fastapi.websockets import WebSocketDisconnect
 
@@ -58,10 +60,24 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="lovecash relay", lifespan=lifespan)
 
-    def auth(x_relay_token: str | None = Header(default=None)) -> None:
+    def auth(request: Request, x_relay_token: str | None = Header(default=None)) -> None:
         token = settings.server.relay_token
-        if token and x_relay_token != token:
-            raise HTTPException(status_code=401, detail="bad relay token")
+        if token:
+            if x_relay_token != token:
+                raise HTTPException(status_code=401, detail="bad relay token")
+            return  # token-authenticated callers are trusted as-is
+        # No token (loopback-only relay): a drive-by webpage must never
+        # clear a panic stop. Browsers tag cross-site requests with
+        # Sec-Fetch-Site, and DNS-rebinding attacks arrive with a
+        # non-loopback Host — refuse both. Local scripts and curl keep
+        # working.
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(status_code=403, detail="cross-site control request refused")
+        host = urlsplit(f"//{request.headers.get('host', '')}").hostname or ""
+        if host.lower() not in _LOOPBACK:
+            raise HTTPException(
+                status_code=403, detail="control requests must come from this machine"
+            )
 
     @app.get("/health")
     async def health() -> dict:
