@@ -10,10 +10,12 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from fastapi.websockets import WebSocketDisconnect
+from pydantic import BaseModel
 
 from lovecash.bch.payment import build_uri, qr_png, qr_svg
-from lovecash.config import Settings
+from lovecash.config import AlertConfig, Limits, Settings
 from lovecash.core.orchestrator import Orchestrator
+from lovecash.models import TipRule
 from lovecash.server.relay import RelayHub
 from lovecash.server.ui import DASHBOARD_HTML, TIP_HTML, render_overlay
 from lovecash.triggers.events import TriggerEvent
@@ -22,6 +24,21 @@ from lovecash.triggers.status import TipStatus
 log = logging.getLogger("lovecash.server")
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+class SettingsUpdate(BaseModel):
+    """Partial live-settings save from the dashboard. Omitted sections
+    stay as-is. xpub/servers/toys are restart-level and not offered."""
+
+    limits: Limits | None = None
+    rules: list[TipRule] | None = None
+    alerts: AlertConfig | None = None
+
+
+def _apply_in_place(model: BaseModel, new: BaseModel) -> None:
+    # Mutate, don't rebind: players/overlay closures hold this object.
+    for name, value in new:
+        setattr(model, name, value)
 
 
 class SessionStats:
@@ -67,7 +84,7 @@ class SessionStats:
         }
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
     # Guardrail: refuse to expose control routes publicly without a token.
     if settings.server.bind_host not in _LOOPBACK and not settings.server.relay_token:
         raise RuntimeError(
@@ -283,6 +300,51 @@ def create_app(settings: Settings) -> FastAPI:
     async def resume() -> dict:
         orchestrator.safety.resume()
         return {"stopped": False}
+
+    @app.get("/api/settings", dependencies=[Depends(auth)])
+    async def get_settings() -> dict:
+        """Current live-editable settings for the dashboard form."""
+        return {
+            "limits": settings.limits.model_dump(),
+            "rules": [r.model_dump() for r in settings.rules],
+            "alerts": alerts.model_dump(),
+            "persisted": config_path is not None,
+        }
+
+    @app.post("/api/settings", dependencies=[Depends(auth)])
+    async def update_settings(body: SettingsUpdate) -> dict:
+        """Hot-apply + persist. Takes effect on the next tip — no restart."""
+        applied: list[str] = []
+        if body.limits is not None:
+            _apply_in_place(settings.limits, body.limits)
+            orchestrator.router.refresh_limits()  # per-toy controller copies
+            applied.append("limits")
+        if body.rules is not None:
+            orchestrator.set_rules(body.rules)
+            settings.rules = body.rules
+            applied.append("rules")
+        if body.alerts is not None:
+            _apply_in_place(alerts, body.alerts)
+            applied.append("alerts")
+        persisted = False
+        if config_path is not None and applied:
+            settings.save_yaml(config_path)
+            persisted = True
+        # Push the change to open overlays/dashboards immediately —
+        # otherwise a new goal/accent only shows after the next tip.
+        if applied:
+            await hub.broadcast(
+                {
+                    "type": "stats",
+                    "data": {
+                        "total_sats": stats.total_sats,
+                        "count": stats.count,
+                        "goal_sats": alerts.goal_sats,
+                    },
+                }
+            )
+            await hub.broadcast({"type": "alerts", "data": alerts.model_dump()})
+        return {"ok": True, "applied": applied, "persisted": persisted}
 
     @app.websocket("/overlay-ws")
     async def overlay_ws(ws: WebSocket) -> None:

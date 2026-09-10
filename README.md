@@ -77,8 +77,10 @@ or open the `/tip` page to pick an amount and add a memo.
 Two more pages come with the relay:
 
 - `http://localhost:8080/dashboard` — your control panel: connection
-  status, session totals, toy battery/online state, recent tips, and a
-  big panic-stop button.
+  status, session totals, toy battery/online state, recent tips, a
+  big panic-stop button, and a live settings editor (limits, alert
+  prefs, tip rules) that applies without a restart and saves back to
+  `config.yaml`.
 - `http://localhost:8080/tip` — the viewer-facing tipping page (presets,
   memo field, live QR, "your tip landed" feedback).
 

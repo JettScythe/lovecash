@@ -137,6 +137,52 @@ TIP_HTML = """<!DOCTYPE html>
   #unreachable { text-align: center; }
   #unreachable .big { margin: 4px 0 16px; font-size: 17px; font-weight: 600; }
 
+  /* live lifecycle stepper */
+  #track { padding: 16px; }
+  #track .section-label { margin-top: 0; }
+  .steps { display: flex; align-items: center; gap: 4px; margin: 6px 0 10px; }
+  .step { flex: 1; text-align: center; }
+  .step .pip {
+    width: 12px; height: 12px; margin: 0 auto 5px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    transition: background 0.2s ease;
+  }
+  .step .lbl { font-size: 10px; letter-spacing: 0.04em; opacity: 0.45; }
+  .step.passed .pip { background: #5cff9d; }
+  .step.passed .lbl { opacity: 0.75; }
+  .step.now .pip {
+    background: #ff5c8a;
+    box-shadow: 0 0 10px rgba(255, 92, 138, 0.8);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .step.now .lbl { opacity: 1; font-weight: 700; }
+  #track-detail { margin: 0; font-size: 13px; text-align: center; opacity: 0.8; min-height: 1.3em; }
+  #track-txid {
+    display: block; margin-top: 8px; font-size: 11px; text-align: center;
+    color: #ff9a5c; text-decoration: none; word-break: break-all; opacity: 0.9;
+  }
+
+  /* trust explainer */
+  details.proof { font-size: 13px; }
+  details.proof summary {
+    cursor: pointer; text-align: center; opacity: 0.65;
+    font-size: 12px; letter-spacing: 0.04em; list-style: none;
+  }
+  details.proof summary::-webkit-details-marker { display: none; }
+  details.proof summary::after { content: " ▾"; }
+  details.proof[open] summary::after { content: " ▴"; }
+  .proof-flow {
+    margin: 12px 0; padding: 12px; border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.7; text-align: center;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .proof-flow .ok { color: #5cff9d; }
+  .proof-flow .no { color: #ff6b6b; }
+  details.proof ul { margin: 8px 0 2px; padding-left: 18px; line-height: 1.6; opacity: 0.85; }
+  details.proof li { margin-bottom: 6px; }
+
   footer { text-align: center; font-size: 12px; opacity: 0.45; }
   .hidden { display: none !important; }
 </style>
@@ -191,6 +237,37 @@ TIP_HTML = """<!DOCTYPE html>
       <p id="thanks-memo" class="thanks-memo"></p>
     </section>
 
+    <section id="track" class="card hidden" aria-live="polite">
+      <div class="section-label">Your tip, live on-chain</div>
+      <div class="steps" id="steps">
+        <div class="step" data-step="received"><div class="pip"></div><div class="lbl">received</div></div>
+        <div class="step" data-step="checking"><div class="pip"></div><div class="lbl">checking</div></div>
+        <div class="step" data-step="queued"><div class="pip"></div><div class="lbl">queued</div></div>
+        <div class="step" data-step="active"><div class="pip"></div><div class="lbl">playing</div></div>
+        <div class="step" data-step="done"><div class="pip"></div><div class="lbl">done</div></div>
+      </div>
+      <p id="track-detail"></p>
+      <a id="track-txid" class="hidden" href="#" target="_blank" rel="noopener"></a>
+    </section>
+
+    <details class="proof card">
+      <summary>How this page protects your tip</summary>
+      <div class="proof-flow">your wallet
+   │
+   ▼  <span class="ok">direct, on-chain</span>
+performer&rsquo;s wallet
+   │
+   ▼  watch-only eyes
+this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see</span></div>
+      <ul>
+        <li><strong>Direct to the performer.</strong> The QR/URI is built in <em>your browser</em> and pays the performer&rsquo;s own address. The relay never holds funds and cannot intercept them.</li>
+        <li><strong>The relay has no keys.</strong> It only knows a <em>watch-only</em> public key (xpub) &mdash; enough to see payments arrive, mathematically unable to spend them.</li>
+        <li><strong>Fresh address every tip.</strong> The address rotates after each payment, so your tip can&rsquo;t be linked to other tippers.</li>
+        <li><strong>Double-spend checked.</strong> Payments are screened with BCH DSProof fraud proofs before the toy reacts; larger tips wait for a block confirmation.</li>
+        <li><strong>Verify it yourself.</strong> After you pay, your transaction id appears above &mdash; check it on any block explorer.</li>
+      </ul>
+    </details>
+
     <section id="unreachable" class="card hidden">
       <p class="big">relay unreachable &mdash; try again later</p>
       <button id="retry" type="button" class="btn-primary">Retry</button>
@@ -210,7 +287,8 @@ TIP_HTML = """<!DOCTYPE html>
     sats: 5000,         // effective selection (preset or custom)
     presetSats: 5000,   // last chosen preset, restored when the custom box is cleared
     customActive: false,
-    memo: ""
+    memo: "",
+    myTxid: null        // txid we claimed via the amount heuristic; statuses tracked against it
   };
 
   var connEl = document.getElementById("conn");
@@ -228,6 +306,10 @@ TIP_HTML = """<!DOCTYPE html>
   var thanksMemoEl = document.getElementById("thanks-memo");
   var unreachableEl = document.getElementById("unreachable");
   var retryBtn = document.getElementById("retry");
+  var trackEl = document.getElementById("track");
+  var stepsEl = document.getElementById("steps");
+  var trackDetailEl = document.getElementById("track-detail");
+  var trackTxidEl = document.getElementById("track-txid");
 
   var statusOk = false;
 
@@ -394,6 +476,57 @@ TIP_HTML = """<!DOCTYPE html>
     connLabelEl.textContent = label;
   }
 
+  var STEP_ORDER = ["received", "checking", "queued", "active", "done"];
+
+  function setStep(status, detail) {
+    // Map wire status onto a fixed 5-stop stepper; confirming and
+    // verifying both light the "checking" stop.
+    var stop = status === "confirming" || status === "verifying" ? "checking" : status;
+    var rank = STEP_ORDER.indexOf(stop);
+    if (rank < 0) return;
+    var nodes = stepsEl.querySelectorAll(".step");
+    var i;
+    for (i = 0; i < nodes.length; i += 1) {
+      nodes[i].classList.remove("passed", "now");
+      if (i < rank) nodes[i].classList.add("passed");
+      else if (i === rank) nodes[i].classList.add(status === "done" ? "passed" : "now");
+    }
+    if (status === "done") nodes[nodes.length - 1].classList.add("passed");
+    trackDetailEl.textContent = detail || "";
+  }
+
+  function statusDetail(status, d) {
+    if (status === "confirming")
+      return d && d.reason === "high_value"
+        ? "larger tip — waiting for one block confirmation"
+        : "waiting for the next block to confirm";
+    if (status === "verifying")
+      return "double-spend fraud-proof check (~" + (d && d.window_seconds || 5) + "s)";
+    if (status === "queued")
+      return "position " + (d && d.position || 1) + " in the play queue";
+    if (status === "active") return "toy is reacting right now";
+    if (status === "done") return d && d.played === false ? "finished (skipped by safety gate)" : "all done — thanks again!";
+    return "";
+  }
+
+  function showTrack() {
+    trackEl.classList.remove("hidden");
+  }
+
+  function onTipStatus(data) {
+    if (!data || typeof data.status !== "string") return;
+    // Same amount heuristic as onTip: claim a status stream as ours when
+    // the txid matches a tip we already claimed, or (before the tip msg
+    // lands) when the amount matches what this page is paying.
+    if (state.myTxid && data.id !== state.myTxid) return;
+    if (!state.myTxid) {
+      if (typeof data.amount_sats !== "number" || data.amount_sats !== state.sats) return;
+      state.myTxid = data.id;
+    }
+    showTrack();
+    setStep(data.status, statusDetail(data.status, data));
+  }
+
   var thanksTimer = null;
   function showThanks(data) {
     var detail = fmtSats(data.amount_sats) + " sats received";
@@ -402,6 +535,14 @@ TIP_HTML = """<!DOCTYPE html>
     thanksDetailEl.textContent = detail;
     // Memo is attacker-controlled on-chain text: textContent, never innerHTML.
     thanksMemoEl.textContent = data.memo ? "“" + data.memo + "”" : "";
+    if (typeof data.txid === "string" && data.txid) {
+      state.myTxid = data.txid;
+      trackTxidEl.textContent = "tx: " + data.txid;
+      trackTxidEl.setAttribute("href", "https://blockchair.com/bitcoin-cash/transaction/" + data.txid);
+      trackTxidEl.classList.remove("hidden");
+      showTrack();
+      setStep("received", "payment seen on the network");
+    }
     pickerEl.classList.add("hidden");
     thanksEl.classList.remove("hidden");
     if (thanksTimer) clearTimeout(thanksTimer);
@@ -449,6 +590,7 @@ TIP_HTML = """<!DOCTYPE html>
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (!msg || typeof msg.type !== "string") return;
       if (msg.type === "tip") onTip(msg.data);
+      else if (msg.type === "tip_status") onTipStatus(msg.data);
       else if (msg.type === "address") onAddress(msg.data);
       else if (msg.type === "status") {
         var c = msg.data && msg.data.connection;

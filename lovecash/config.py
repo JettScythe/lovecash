@@ -122,7 +122,8 @@ class AlertConfig(BaseModel):
     show_memo: bool = True  # OP_RETURN memo text in alerts
     sound: bool = True
     min_sats: int = Field(default=0, ge=0)  # no alert pop below this
-    goal_sats: int | None = None  # set to enable the goal progress bar
+    goal_sats: int | None = None  # the goal amount itself
+    show_goal: bool = True  # master switch: render the bar in the overlay
     accent: str = "#ff5c8a"  # overlay accent color
 
 
@@ -149,3 +150,10 @@ class Settings(BaseSettings):
     def from_yaml(cls, path: str | Path) -> Settings:
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls.model_validate(data)
+
+    def save_yaml(self, path: str | Path) -> None:
+        """Persist current settings. Note: a plain dump — template
+        comments are not preserved."""
+        p = Path(path)
+        p.write_text(yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False))
+        p.chmod(0o600)  # xpub reveals address history — owner-only

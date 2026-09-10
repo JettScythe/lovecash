@@ -36,6 +36,10 @@ class LovenseController:
     async def close(self) -> None:
         await self._client.aclose()
 
+    def set_limits(self, limits: Limits) -> None:
+        """Hot-update the clamp ceilings (dashboard settings save)."""
+        self._limits = limits
+
     def _clamp(self, cmd: ToyCommand) -> ToyCommand:
         return ToyCommand(
             action=cmd.action,

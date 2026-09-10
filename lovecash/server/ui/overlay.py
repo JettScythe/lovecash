@@ -215,17 +215,24 @@ _TEMPLATE = """<!DOCTYPE html>
     setTimeout(() => el.remove(), t === "whale" ? 8000 : 6000);
   }
 
+  let lastStats = { total_sats: 0, goal_sats: ALERTS.goal_sats };
+
   function updateGoal(d) {
-    if (d.goal_sats == null || d.goal_sats <= 0) {
+    if (d && typeof d.total_sats === "number") {
+      lastStats.total_sats = d.total_sats;
+      if (d.goal_sats !== undefined) lastStats.goal_sats = d.goal_sats;
+    }
+    const goal = lastStats.goal_sats;
+    if (!ALERTS.show_goal || goal == null || goal <= 0) {
       goalEl.style.display = "none";
       return;
     }
     goalEl.style.display = "block";
-    const pct = Math.min(100, (d.total_sats / d.goal_sats) * 100);
+    const pct = Math.min(100, (lastStats.total_sats / goal) * 100);
     document.getElementById("goal-fill").style.width = pct + "%";
     document.getElementById("goal-nums").textContent =
-      d.total_sats.toLocaleString() + " / " +
-      d.goal_sats.toLocaleString() + " sats (" + Math.floor(pct) + "%)";
+      lastStats.total_sats.toLocaleString() + " / " +
+      goal.toLocaleString() + " sats (" + Math.floor(pct) + "%)";
   }
 
   function renderQueue() {
@@ -269,6 +276,17 @@ _TEMPLATE = """<!DOCTYPE html>
     renderQueue();
   }
 
+  // Seed the goal bar on load — a persisted goal shows immediately,
+  // not after the first tip of the session.
+  fetch("/api/status").then((r) => r.ok ? r.json() : null).then((data) => {
+    if (!data) return;
+    if (data.alerts) Object.assign(ALERTS, data.alerts);
+    if (data.stats && typeof data.stats.total_sats === "number")
+      lastStats.total_sats = data.stats.total_sats;
+    lastStats.goal_sats = ALERTS.goal_sats;
+    updateGoal();
+  }).catch(() => { /* offline: bar waits for the first stats push */ });
+
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(proto + "://" + location.host + "/overlay-ws");
@@ -280,6 +298,12 @@ _TEMPLATE = """<!DOCTYPE html>
       const msg = JSON.parse(ev.data);
       if (msg.type === "tip") showAlert(msg.data);
       else if (msg.type === "stats") updateGoal(msg.data);
+      else if (msg.type === "alerts") {
+        Object.assign(ALERTS, msg.data);
+        if (ALERTS.accent)
+          document.documentElement.style.setProperty("--accent", ALERTS.accent);
+        updateGoal(); // show_goal / goal_sats may have just changed
+      }
       else if (msg.type === "tip_status") onTipStatus(msg.data);
       else if (msg.type === "status") {
         const live = msg.data.connection === "connected";
