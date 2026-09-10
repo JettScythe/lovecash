@@ -9,6 +9,7 @@
   },
   "scripts": {
     "compile": "cashc goal_show.cash -o goal_show.json",
-    "test": "npm run compile && node --test"
+    "test": "npm run compile && node --test",
+    "chipnet": "node chipnet_e2e.mjs"
   }
 }

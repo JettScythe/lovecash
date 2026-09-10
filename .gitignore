@@ -21,3 +21,4 @@ scratch_*.py
 # Phase 3 covenant toolchain (compiled via dockerized node)
 contracts/node_modules/
 contracts/package-lock.json
+contracts/.chipnet-wif

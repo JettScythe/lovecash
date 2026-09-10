@@ -53,8 +53,21 @@ Build: artifact `goal_show.json` compiles via cashc 0.13.2
 
 ## Notes / follow-ups
 
-- **Chipnet pass required before mainnet** — mock VM ≠ consensus. Deploy
-  + pledge + claim + refund on chipnet with real wallets is the next gate.
+- **Chipnet pass: DONE (same day).** `contracts/chipnet_e2e.mjs` ran the
+  full lifecycle against real chipnet consensus via
+  `ElectrumNetworkProvider` on `chipnet.imaginary.cash`:
+  - Instance A: genesis (single minting NFT) → seed → pledge (receipt
+    commitment byte-verified on-chain) → claim at goal → pot consumed.
+    Claim tx `bb1b9f395b6f…3251f`.
+  - Instance B (deadline=1): genesis → seed → pledge (locktime 0) →
+    refund (locktime 1, CLTV) → pledger repaid, pot reduced. Refund tx
+    `e272f833bba3…73730`.
+  - Below-goal claim rejected **by the node**:
+    `mandatory-script-verify-flag-failed` (code 16).
+  - Zero VM drift vs the mock network; surprises were operational
+    (builder local-eval masks node rejection — use `sendRawTransaction`
+    for negative tests; cashscript's default chipnet server is dead, use
+    imaginary.cash; vout-0 parent hygiene for genesis).
 - **lovecash integration (round 2, same day):** shipped — `goal_show`
   config, watcher pot subscription (outside the tip pipeline), relay
   `goal_pot` broadcast, overlay goal bar tracks the pot, `/api/status`
