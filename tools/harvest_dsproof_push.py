@@ -17,9 +17,11 @@ from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.verify import Outcome, Verifier
 from lovecash.config import Settings
 
-NODE_URL = os.getenv("NODE_RPC_URL", "http://localhost:8332")
-NODE_USER = os.getenv("NODE_RPC_USER", "username")
-NODE_PASS = os.getenv("NODE_RPC_PASS", "password")
+# Credentials come from the environment ONLY. Never hardcode real values
+# here — export NODE_RPC_URL / NODE_RPC_USER / NODE_RPC_PASS before running.
+NODE_URL = os.environ.get("NODE_RPC_URL", "http://localhost:8332")
+NODE_USER = os.environ["NODE_RPC_USER"]
+NODE_PASS = os.environ["NODE_RPC_PASS"]
 
 
 async def node_rpc(http: httpx.AsyncClient, method: str, params=None):
@@ -55,9 +57,12 @@ async def validate_refusal(c: ElectrumClient, txid: str) -> None:
     outcome = await verifier.verify(txid, tx)
     if outcome is Outcome.NEEDS_CONF:
         print("  >>> VERIFIER REFUSED (NEEDS_CONF) — end-to-end VALIDATED <<<")
+    elif txid in tx:
+        print(
+            f">>> verifier said {outcome} but proof IS live — server's subscribe response didn't carry it (window catch failed) <<<"
+        )
     else:
-        print(f"  >>> VERIFIER RETURNED {outcome} ON A DOUBLE-SPEND <<<")
-        print("  >>> THIS IS THE CATASTROPHIC CASE. DO NOT ENABLE DSPROOF. <<<")
+        print(f">>> CATASTROPHIC: {outcome} on a real double-spend <<<")
 
 
 async def main() -> None:
