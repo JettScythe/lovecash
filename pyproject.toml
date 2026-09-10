@@ -88,8 +88,8 @@ exclude = [
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.13
-target-version = "py313"
+# Assume Python 3.14
+target-version = "py314"
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
@@ -125,7 +125,6 @@ line-ending = "auto"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
 tag_format = "v$version"
 version_scheme = "semver"
 version_provider = "pep621"      # reads version from [project]
@@ -141,5 +140,5 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 # The ecdsa lib has no type stubs and spams warnings; silence just it.
 [[tool.mypy.overrides]]
-module = ["ecdsa.*", "hdwallet.*", "segno.*", "gp-oracle"]
+module = ["ecdsa.*", "hdwallet.*", "segno.*", "gp_oracle.*"]
 ignore_missing_imports = true

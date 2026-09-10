@@ -200,7 +200,7 @@ async def test_notification_scans_only_the_notified_address():
             calls.append(params[0])
         return await orig_call(method, *params, timeout=timeout)
 
-    client.call = counting_call  # type: ignore[method-assign]
+    client.call = counting_call
 
     # A new confirmed tip at index 1, notified with its scripthash.
     history[sh1] = [{"tx_hash": "c", "height": 101}]

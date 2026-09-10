@@ -72,7 +72,7 @@ def _cfg(**over):
         "always_confirm_above_sats": 1_000_000,
     }
     base.update(over)
-    return BchConfig(**base)  # type: ignore[arg-type]
+    return BchConfig(**base)
 
 
 async def test_small_tip_skips_verification():

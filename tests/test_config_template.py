@@ -64,3 +64,15 @@ def test_rendered_template_validates():
     from lovecash.config import Settings
 
     Settings.model_validate(_rendered_template())  # must parse cleanly
+
+
+def test_example_config_validates():
+    """config.example.yaml must stay loadable (xpub placeholder swapped)."""
+    from lovecash.config import Settings
+
+    data = yaml.safe_load(Path("config.example.yaml").read_text())
+    data["bch"]["xpub"] = (
+        "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6"
+        "ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
+    )
+    Settings.model_validate(data)

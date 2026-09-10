@@ -11,3 +11,9 @@ wheels/
 /lovecash/.DS_Store
 /config.yaml
 /.DS_Store
+**/.DS_Store
+
+# Local scratch / state
+.coverage
+config.yaml.bak
+scratch_*.py

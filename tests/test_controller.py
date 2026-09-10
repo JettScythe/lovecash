@@ -31,7 +31,7 @@ def controller():
         Limits(max_strength=10, max_duration_s=5),
         safety,
     )
-    ctrl._client = FakeHttp()  # type: ignore[assignment]
+    ctrl._client = FakeHttp()
     return ctrl, safety
 
 
