@@ -30,11 +30,13 @@ class Orchestrator:
         self._address_observers: list[AddressObserver] = []
         self.connection_state = ConnectionState.CONNECTED
 
-        self.safety = SafetyState(settings.limits.min_seconds_between_commands)
-        self.router = router or ToyRouter.from_settings(
-            settings, self.safety, on_tip_status=self._broadcast_tip_status
-        )
-        self.safety = self.router.safety
+        if router is None:
+            safety = SafetyState(settings.limits.min_seconds_between_commands)
+            router = ToyRouter.from_settings(
+                settings, safety, on_tip_status=self._broadcast_tip_status
+            )
+        self.router = router
+        self.safety = router.safety
 
         self.resolvers: dict[str, Resolver] = {
             "payment": PaymentResolver(RulesEngine(settings.rules)),

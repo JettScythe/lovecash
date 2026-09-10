@@ -1,7 +1,10 @@
 import asyncio
 import json
+import logging
 
 from lovecash.triggers.events import TriggerEvent
+
+log = logging.getLogger("lovecash.relay")
 
 
 class RelayHub:
@@ -11,7 +14,8 @@ class RelayHub:
         self._clients: set[asyncio.Queue] = set()
 
     def register(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+        # Bounded: a stalled overlay must not grow memory or block others.
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
         self._clients.add(q)
         return q
 
@@ -22,7 +26,11 @@ class RelayHub:
         """Fan out an arbitrary JSON payload to all connected overlays."""
         msg = json.dumps(payload)
         for q in list(self._clients):
-            await q.put(msg)
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                log.warning("Overlay client too slow — dropping it.")
+                self._clients.discard(q)
 
     async def broadcast_event(self, event: TriggerEvent) -> None:
         """Forward a trigger to overlays. Only payments drive tip alerts."""

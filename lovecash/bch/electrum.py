@@ -147,7 +147,7 @@ class ElectrumClient:
         assert self._writer is not None
         self._id += 1
         req_id = self._id
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         payload = json.dumps({"id": req_id, "method": method, "params": list(params)})
         self._writer.write(payload.encode() + b"\n")

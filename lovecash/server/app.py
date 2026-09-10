@@ -144,8 +144,8 @@ def create_app(settings: Settings) -> FastAPI:
         try:
             while True:
                 await ws.send_text(await q.get())
-        except WebSocketDisconnect:
-            pass
+        except (WebSocketDisconnect, RuntimeError):
+            pass  # client went away (send on a closed socket: RuntimeError)
         finally:
             hub.unregister(q)
 

@@ -225,6 +225,8 @@ async def _init(config: str) -> None:
         raise typer.Exit(code=1) from exc
 
     await Path(config).write_text(rendered)
+    # The xpub reveals your full address history — keep it owner-only.
+    await Path(config).chmod(0o600)
     console.print(f"[green]Wrote {config}.[/] Next: [bold]lovecash doctor[/]")
 
 
