@@ -63,9 +63,7 @@ async def _run_session(state_path: Path, client: FakeClient, fired: list) -> Non
     async def emit(ev):
         fired.append(ev)
 
-    src = PaymentSource(
-        _cfg(), client_factory=lambda *a: client, state_path=state_path
-    )
+    src = PaymentSource(_cfg(), client_factory=lambda *a: client, state_path=state_path)
     task = asyncio.create_task(src._session(emit))
     await asyncio.sleep(0.08)
     task.cancel()

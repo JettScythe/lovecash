@@ -3,8 +3,6 @@ from hdwallet.symbols import BCH
 
 from lovecash.bch.cashaddr import encode_p2pkh
 
-_PRIVATE_PREFIXES = ("xprv", "yprv", "zprv", "tprv", "Ltpv")
-
 
 class XpubError(ValueError):
     pass
@@ -15,7 +13,8 @@ class XpubDeriver:
 
     def __init__(self, xpub: str, branch: int = 0) -> None:
         x = xpub.strip()
-        if x[:4] in _PRIVATE_PREFIXES or "prv" in x[:6].lower():
+        # "prv" catches xprv/yprv/zprv/tprv; "Ltpv" is the odd one out.
+        if x[:4] == "Ltpv" or "prv" in x[:6].lower():
             raise XpubError(
                 "That looks like a PRIVATE key (xprv...). Never paste a "
                 "private key. lovecash needs your PUBLIC key (xpub...)."

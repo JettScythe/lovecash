@@ -20,9 +20,7 @@ async def test_relay_fans_out_tips():
     hub = RelayHub()
     a = hub.register()
     b = hub.register()
-    await hub.broadcast_event(
-        PaymentTrigger(source_id="t", txid="x", amount_sats=5000, confirmations=1)
-    )
+    await hub.broadcast({"type": "tip", "data": {"amount_sats": 5000}})
     msg_a = await a.get()
     msg_b = await b.get()
     assert "5000" in msg_a and msg_a == msg_b

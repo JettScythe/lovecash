@@ -5,7 +5,6 @@ from collections.abc import Awaitable, Callable
 from lovecash.config import Limits, Settings
 from lovecash.core.player import CommandPlayer
 from lovecash.lovense.controller import LovenseController
-from lovecash.lovense.protocol import ToyController
 from lovecash.models import ToyCommand
 from lovecash.safety import SafetyState
 from lovecash.triggers.events import ToyTarget
@@ -17,7 +16,8 @@ class ToyRouter:
     def __init__(self, safety: SafetyState, limits: Limits) -> None:
         self.safety = safety
         self._limits = limits
-        self._toys: dict[str, tuple[ToyController, CommandPlayer]] = {}
+        # Controllers are duck-typed: run/stop_all/close (fakes in tests).
+        self._toys: dict[str, tuple[object, CommandPlayer]] = {}
 
     @classmethod
     def from_settings(
@@ -36,7 +36,7 @@ class ToyRouter:
     def add_toy(
         self,
         toy_id: str,
-        controller: ToyController,
+        controller,
         on_tip_status: TipStatusFn | None = None,
     ) -> None:
         player = CommandPlayer(controller, self._limits, on_tip_status=on_tip_status)
