@@ -64,6 +64,10 @@ window.LovecashPledge = {
     amountInput.inputMode = 'numeric';
     amountInput.placeholder = 'Pledge amount in sats (min 546)';
     amountInput.setAttribute('aria-label', 'Pledge amount in sats');
+    const pledgeHint = el('p', 'hint',
+      'Under ~600 sats can\u2019t be refunded later — the refund tx\u2019s own fee exceeds them.');
+    pledgeHint.style.textAlign = 'left';
+    amountInput.insertAdjacentElement('afterend', pledgeHint);
     const connectBtn = el('button', 'btn-primary', 'Connect wallet (Cashonize)');
     connectBtn.type = 'button';
     const pledgeBtn = el('button', 'btn-primary hidden', 'Pledge with Cashonize');
@@ -138,10 +142,19 @@ window.LovecashPledge = {
       for (const receipt of receipts) {
         const amount = receiptAmount(receipt);
         const row = el('div', 'token-row');
-        row.appendChild(el('div', 'tk-min', receipt.value + '-sat receipt (' + amount + ' sats pledged)'));
-        const btn = el('button', 'btn-primary', open ? 'Refund ' + amount + ' sats' : 'Refund (not open yet)');
+        row.appendChild(el('div', 'tk-min', amount.toLocaleString() + ' sats pledged'));
+        // A refund tx needs ~825 sats of fee and the covenant caps inputs
+        // at 2, so tiny receipts can't pay their own way out. Headroom:
+        // amount + 800 (receipt dust) - 546 (payout floor) >= fee.
+        const tooSmall = amount < 571;
+        const label = tooSmall
+          ? 'Too small to refund (fee exceeds it)'
+          : open
+            ? 'Refund ' + amount.toLocaleString() + ' sats'
+            : 'Refund (not open yet)';
+        const btn = el('button', 'btn-primary', label);
         btn.type = 'button';
-        btn.disabled = !open;
+        btn.disabled = !open || tooSmall;
         btn.addEventListener('click', async () => {
           btn.disabled = true;
           sayResult('building refund transaction\u2026');
