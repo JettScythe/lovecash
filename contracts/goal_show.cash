@@ -22,7 +22,11 @@ pragma cashscript ^0.13.0;
 // Layout: the pot is ALWAYS input 0 and output 0. It carries the minting
 // NFT; its satoshi value is the running pledge total.
 //   pledge(): pot grows; ONE immutable receipt NFT is minted to the
-//             pledger (commitment = hash160(key) + 8-byte LE amount).
+//             pledger (commitment = pledgerPkh + 8-byte LE amount).
+//             Permissionless to build: takes the pkh, not the pubkey, so
+//             any wallet can fund a receipt to any pkh with a plain P2PKH
+//             signature — funding a receipt for someone else is a gift,
+//             not an attack (only that pkh's key can ever refund it).
 //   claim():  pot >= goal -> whole pot (minus fee) to performerPkh.
 //   refund(): deadline passed && pot < goal -> burn ONE receipt NFT, pay
 //             its pledger back, pot continues reduced.
@@ -34,7 +38,10 @@ pragma cashscript ^0.13.0;
 // receipt input per refund.
 contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 category) {
 
-  function pledge(pubkey pledgerKey) {
+  // Pledge takes the pledger's pubkey HASH (not the pubkey): the receipt
+  // commitment only ever needed hash160(key), so wallets never touch a
+  // covenant-input pubkey placeholder — the funding input is plain P2PKH.
+  function pledge(bytes20 pledgerPkh) {
     require(this.activeInputIndex == 0, "pot must be input 0");
     require(tx.inputs.length == 2, "pledge: pot + one funding input");
     // ponytail: BCH consensus enforces time *lower* bounds only (CLTV), so
@@ -58,8 +65,7 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
     require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment, "pot commitment changed");
 
     // Output 1: ONE immutable receipt NFT to the pledger; commitment =
-    // hash160(pledgerKey) + 8-byte little-endian pledge amount (28 bytes).
-    bytes20 pledgerPkh = hash160(pledgerKey);
+    // pledgerPkh + 8-byte little-endian pledge amount (28 bytes).
     require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(pledgerPkh), "receipt not to pledger");
     require(tx.outputs[1].tokenCategory == category, "receipt must be immutable NFT of pot category");
     require(tx.outputs[1].nftCommitment == pledgerPkh + toPaddedBytes(pledgeAmount, 8), "receipt commitment mismatch");

@@ -99,6 +99,12 @@ class Orchestrator:
     def current_price_usd(self) -> float | None:
         return self._payment_source.current_price_usd()
 
+    async def pot_utxo(self) -> dict | None:
+        return await self._payment_source.pot_utxo()
+
+    async def address_utxos(self, address: str) -> list[dict]:
+        return await self._payment_source.address_utxos(address)
+
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state
         for obs in self._status_observers:

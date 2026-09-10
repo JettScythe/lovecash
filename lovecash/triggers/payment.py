@@ -225,6 +225,60 @@ class PaymentSource(TriggerSource):
         if self._on_pot_balance:
             await self._on_pot_balance(total)
 
+    async def _listunspent(self, scripthash: str) -> list[dict]:
+        """UTXOs for a scripthash, token data included.
+
+        Server-agnostic: plain listunspent + our own raw-tx parse (the
+        same parser the token watcher uses) instead of relying on
+        Fulcrum's CashToken extensions, which not every server runs.
+        """
+        client = self._require_client()
+        rows = await client.call("blockchain.scripthash.listunspent", scripthash)
+        out = []
+        for row in rows or []:
+            raw = await client.call("blockchain.transaction.get", row["tx_hash"])
+            outputs = parse_tx(bytes.fromhex(raw))
+            o = outputs[row["tx_pos"]]
+            token = None
+            if o.token is not None:
+                token = {
+                    "category": o.token.category,
+                    "amount": o.token.amount,
+                    "nft": (
+                        {
+                            "capability": o.token.nft_capability,
+                            "commitment": o.token.commitment.hex(),
+                        }
+                        if o.token.nft_capability is not None
+                        else None
+                    ),
+                }
+            out.append(
+                {
+                    "tx_hash": row["tx_hash"],
+                    "tx_pos": row["tx_pos"],
+                    "height": row.get("height", 0),
+                    "value": o.value_sats,
+                    "token": token,
+                }
+            )
+        return out
+
+    async def pot_utxo(self) -> dict | None:
+        """The live pot UTXO (carries the category's minting NFT)."""
+        if self._pot_sh is None:
+            return None
+        for u in await self._listunspent(self._pot_sh):
+            nft = (u["token"] or {}).get("nft") or {}
+            if nft.get("capability") == "minting":
+                return u
+        return None
+
+    async def address_utxos(self, address: str) -> list[dict]:
+        """UTXOs paying any address — used by the /tip pledge flow to
+        fund the viewer side of a covenant transaction."""
+        return await self._listunspent(to_scripthash(address))
+
     async def _extend_window(self) -> None:
         client = self._require_client()
         top = self._next_index + self._cfg.gap_limit

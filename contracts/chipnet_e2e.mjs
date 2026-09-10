@@ -132,7 +132,7 @@ const pledgerFunds = await waitForUtxo(provider, bchtest(pledger.pkh), (u) => u.
 
 const pledgeA = 5_000n;
 const pledgeAtxid = await new TransactionBuilder({ provider })
-  .addInput(potA, contractA.unlock.pledge(pledger.pub))
+  .addInput(potA, contractA.unlock.pledge(pledger.pkh))
   .addInput(pledgerFunds, pledger.sig.unlockP2PKH())
   .addOutput({ to: contractA.tokenAddress, amount: potA.satoshis + pledgeA, token: { category: genA.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
   .addOutput({ to: p2pkhLock(pledger.pkh), amount: NFT_DUST, token: { category: genA.category, amount: 0n, nft: { capability: 'none', commitment: binToHex(Uint8Array.from([...pledger.pkh, ...le64(pledgeA)])) } } })
@@ -173,7 +173,7 @@ const potB = await waitForUtxo(provider, contractB.tokenAddress, (u) => u.txid =
 const pledgerChangeA = await waitForUtxo(provider, bchtest(pledger.pkh), (u) => u.txid === pledgeAtxid && !u.token, 'pledger change');
 const pledgeB = 2_000n;
 const pledgeBtxid = await new TransactionBuilder({ provider })
-  .addInput(potB, contractB.unlock.pledge(pledger.pub))
+  .addInput(potB, contractB.unlock.pledge(pledger.pkh))
   .addInput(pledgerChangeA, pledger.sig.unlockP2PKH())
   .addOutput({ to: contractB.tokenAddress, amount: potB.satoshis + pledgeB, token: { category: genB.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
   .addOutput({ to: p2pkhLock(pledger.pkh), amount: NFT_DUST, token: { category: genB.category, amount: 0n, nft: { capability: 'none', commitment: binToHex(Uint8Array.from([...pledger.pkh, ...le64(pledgeB)])) } } })

@@ -247,8 +247,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 if settings.goal_show
                 else None
             ),
-            "price_usd": orchestrator.current_price_usd(),
-            "stats": stats.snapshot(),
+            "price_usd": orchestrator.current_price_usd(),            "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),
         }
 
@@ -292,6 +291,14 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         """Public viewer tipping page: amount picker + live QR."""
         return TIP_HTML
 
+    @app.get("/qr-data.png")
+    async def qr_data_ep(
+        data: str = Query(min_length=1, max_length=512),
+        scale: int = Query(default=8, ge=1, le=20),
+    ) -> Response:
+        """Generic QR for opaque data (WalletConnect pairing URI)."""
+        return Response(content=qr_png(data, scale), media_type="image/png")
+
     @app.get("/qr.png")
     async def qr_png_ep(
         amount: float | None = Query(default=None, ge=0),
@@ -331,6 +338,39 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 message=message,
             )
         }
+
+    @app.get("/api/goal_pot")
+    async def api_goal_pot() -> dict:
+        """Everything the /tip pledge flow needs to build a covenant tx.
+
+        Read-only by design: this only proxies the watcher's view of the
+        chain. Note it makes the relay an Electrum listunspent proxy —
+        fine on loopback/LAN; on a public relay assume scraping and rate
+        it at your reverse proxy if it matters.
+        """
+        if not settings.goal_show:
+            return {"configured": False}
+        gs = settings.goal_show
+        return {
+            "configured": True,
+            "address": gs.address,
+            "goal_sats": gs.goal_sats,
+            "deadline": gs.deadline,
+            "performer_pkh": gs.performer_pkh,
+            "balance_sats": orchestrator.pot_balance,
+            "wc_project_id": settings.server.wc_project_id,
+            "utxo": await orchestrator.pot_utxo(),
+        }
+
+    @app.get("/api/utxos")
+    async def api_utxos(address: str = Query(min_length=20, max_length=100)) -> dict:
+        """UTXOs for any address, token data included (viewer funding
+        inputs for the pledge flow)."""
+        try:
+            return {"ok": True, "utxos": await orchestrator.address_utxos(address)}
+        except Exception as exc:
+            log.warning("address_utxos failed: %s", exc)
+            return {"ok": False, "utxos": []}
 
     # --- Performer control (auth required) ---
 

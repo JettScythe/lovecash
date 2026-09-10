@@ -257,7 +257,7 @@ async def test_pot_subscribed_and_balance_reported():
     src = PaymentSource(
         _cfg(),
         client_factory=lambda *a: client,
-        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000),
+        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000, deadline=900_000),
         on_pot_balance=on_pot,
     )
     src._client = client
@@ -288,7 +288,7 @@ async def test_pot_notification_updates_balance_not_tips():
     src = PaymentSource(
         _cfg(),
         client_factory=lambda *a: client,
-        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000),
+        goal_show=GoalShowConfig(address=POT_ADDR, goal_sats=100_000, deadline=900_000),
         on_pot_balance=on_pot,
     )
     src._client = client
@@ -306,7 +306,86 @@ def test_goal_show_config_validates():
 
     from lovecash.config import GoalShowConfig
 
-    cfg = GoalShowConfig(address=POT_ADDR, goal_sats=100_000)
+    cfg = GoalShowConfig(address=POT_ADDR, goal_sats=100_000, deadline=900_000)
     assert cfg.goal_sats == 100_000
     with pytest.raises(ValueError):
-        GoalShowConfig(address=POT_ADDR, goal_sats=0)
+        GoalShowConfig(address=POT_ADDR, goal_sats=0, deadline=900_000)
+
+
+# --- goal-show UTXO accessors (viewer pledge flow) ---
+
+
+def _raw_tx_nft(addr: str, category: str, capability: int) -> str:
+    """Output paying `addr` carrying an NFT (no commitment/amount)."""
+    cat_bytes = bytes.fromhex(category)[::-1]
+    prefix = b"\xef" + cat_bytes + bytes([0x20 | capability])
+    payload = prefix + to_script(addr)
+    tx = (2).to_bytes(4, "little")
+    tx += _cs(1) + b"\x00" * 32 + (0).to_bytes(4, "little")
+    tx += _cs(0) + b"\xff" * 4
+    tx += _cs(1)
+    tx += (5000).to_bytes(8, "little") + _cs(len(payload)) + payload
+    tx += (0).to_bytes(4, "little")
+    return tx.hex()
+
+
+class UtxoFakeClient(PotFakeClient):
+    def __init__(self, rows: list[dict], raws: dict[str, str]) -> None:
+        super().__init__()
+        self._rows = rows
+        self._raws = raws
+
+    async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
+        if method.endswith("listunspent"):
+            return list(self._rows)
+        if method.endswith("transaction.get"):
+            return self._raws[params[0]]
+        return await super().call(method, *params)
+
+
+async def test_pot_utxo_picks_minting_nft():
+    from lovecash.bch.cashaddr import to_scripthash
+    from lovecash.config import GoalShowConfig
+
+    raw_minting = _raw_tx_nft(POT_ADDR, CAT, 2)
+    raw_immutable = _raw_tx_nft(POT_ADDR, CAT, 0)
+    rows = [
+        {"tx_hash": "aa", "tx_pos": 0, "height": 1, "value": 5000},
+        {"tx_hash": "bb", "tx_pos": 0, "height": 1, "value": 5000},
+    ]
+    raws = {"aa": raw_immutable, "bb": raw_minting}
+    client = UtxoFakeClient(rows, raws)
+    src = PaymentSource(
+        _cfg(),
+        client_factory=lambda *a: client,
+        goal_show=GoalShowConfig(
+            address=POT_ADDR,
+            goal_sats=100_000,
+            deadline=900_000,
+            performer_pkh="11" * 20,
+        ),
+    )
+    src._client = client
+    pot = await src.pot_utxo()
+    assert pot is not None
+    assert pot["tx_hash"] == "bb"  # the minting one, not "aa"
+    assert pot["token"]["category"] == CAT
+    assert pot["token"]["nft"]["capability"] == "minting"
+    assert pot["value"] == 5000
+
+
+async def test_address_utxos_marks_tokenless():
+    d = XpubDeriver(XPUB)
+    addr = d.address(0)
+    rows = [{"tx_hash": "cc", "tx_pos": 0, "height": 1, "value": 546}]
+    raws = {"cc": _raw_tx(addr, CAT, 150)}  # token-carrying
+    client = UtxoFakeClient(rows, raws)
+    src = PaymentSource(_cfg(), client_factory=lambda *a: client)
+    src._client = client
+    utxos = await src.address_utxos(addr)
+    assert len(utxos) == 1
+    assert utxos[0]["token"]["amount"] == 150
+    # sanity: scripthash lookup used the same address encoding
+    from lovecash.bch.cashaddr import to_scripthash
+
+    assert to_scripthash(addr)

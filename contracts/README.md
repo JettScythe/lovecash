@@ -3,8 +3,9 @@
 CashScript covenant for all-or-nothing tip goals (see docs/covenant-goal-shows.md).
 Constructor: `(performerPkh, goalSats, deadline, category)` — one instance per show,
 bound to one token category. The pot UTXO carries the category's minting NFT;
-`pledge` grows the pot and mints an immutable receipt NFT, `claim` pays the performer
-once the goal is met, `refund` pays a pledger back after the deadline if the goal was missed.
+`pledge(bytes20 pledgerPkh)` grows the pot and mints an immutable receipt NFT (pkh only —
+wallets sign plain P2PKH), `claim` pays the performer once the goal is met,
+`refund(sig, pubkey)` pays a pledger back after the deadline if the goal was missed.
 
 Trust summary: abandonment protection only — the performer can always self-fund a claim
 (equivalent to tipping themselves). Pledgers must verify off-chain that genesis minted

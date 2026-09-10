@@ -52,7 +52,7 @@ function pledgeTx({ provider, contract, pot, pledger, amount, locktime = DEADLIN
   });
   const builder = new TransactionBuilder({ provider });
   const inputs = [
-    [pot, contract.unlock.pledge(pledger.pub)],
+    [pot, contract.unlock.pledge(pledger.pkh)],
     [funding, funder.sig.unlockP2PKH()],
   ];
   if (!potFirst) inputs.reverse();
