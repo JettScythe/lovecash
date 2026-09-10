@@ -3,6 +3,7 @@ import logging
 from collections import deque
 
 from lovecash.config import Limits, Playback, TrimStrategy
+from lovecash.lovense.protocol import ToyController
 from lovecash.models import ToyCommand
 from lovecash.triggers.status import TipStatus
 
@@ -17,7 +18,9 @@ class CommandPlayer:
     mode fires each command immediately.
     """
 
-    def __init__(self, controller, limits: Limits, on_tip_status=None) -> None:
+    def __init__(
+        self, controller: ToyController, limits: Limits, on_tip_status=None
+    ) -> None:
         self._controller = controller
         self._limits = limits
         self._pending: deque[tuple[ToyCommand, str | None]] = deque()

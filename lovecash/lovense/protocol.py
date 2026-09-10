@@ -1,0 +1,9 @@
+from typing import Protocol
+
+from lovecash.models import ToyCommand
+
+
+class ToyController(Protocol):
+    async def run(self, cmd: ToyCommand) -> bool: ...
+    async def stop_all(self) -> None: ...
+    async def close(self) -> None: ...

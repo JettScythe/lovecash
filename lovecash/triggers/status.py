@@ -9,6 +9,7 @@ class ConnectionState(StrEnum):
 
 class TipStatus(StrEnum):
     CONFIRMING = "confirming"  # waiting for confirmation (countdown)
+    VERIFYING = "verifying"  # DSProof verification window
     QUEUED = "queued"  # in the playback queue
     ACTIVE = "active"  # toy is firing now
     DONE = "done"  # completed
