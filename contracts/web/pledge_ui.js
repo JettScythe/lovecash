@@ -13,7 +13,7 @@
 // all follow the wc2-bch-bcr / hdwalletv1 specs — verify with real
 // Cashonize before shipping to viewers.
 import { initiateDappRelay } from '@wizardconnect/core';
-import { DappConnectionManager } from '@wizardconnect/dapp';
+import { DappConnectionManager, loadSession } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
 import { buildPledgeTx, decodeAnyAddr, toTokenAddress } from './pledge_tx.mjs';
 import { buildRefundTx, parseReceiptCommitment } from './refund_tx.mjs';
@@ -72,6 +72,12 @@ window.LovecashPledge = {
     connectBtn.type = 'button';
     const pledgeBtn = el('button', 'btn-primary hidden', 'Pledge with Cashonize');
     pledgeBtn.type = 'button';
+    const forgetBtn = el('button', 'btn-primary hidden', 'Forget this wallet');
+    forgetBtn.type = 'button';
+    forgetBtn.style.background = 'none';
+    forgetBtn.style.boxShadow = 'none';
+    forgetBtn.style.opacity = '0.6';
+    forgetBtn.style.fontSize = '13px';
     const qrWrap = el('div', 'qr-wrap hidden');
     const qrImg = el('img');
     qrImg.alt = 'WizardConnect pairing QR code';
@@ -94,6 +100,7 @@ window.LovecashPledge = {
     mount.appendChild(uriLink);
     mount.appendChild(copyBtn);
     mount.appendChild(pledgeBtn);
+    mount.appendChild(forgetBtn);
     mount.appendChild(status);
     mount.appendChild(result);
 
@@ -111,6 +118,34 @@ window.LovecashPledge = {
 
     let dappMgr = null;
     let viewerAddress = null;
+
+    function onWalletReady() {
+      try {
+        // hdwalletv1: child 0 = receive path, index 0 = first receive address.
+        // The pledge's inputPaths [[1,'receive',0]] must match this address.
+        const pub = dappMgr.getPubkey(0, 0n);
+        if (!pub) throw new Error('wallet sent no receive-path xpub');
+        viewerAddress = unwrapAddr(encodeCashAddress({ prefix: netPrefix, type: CashAddressType.p2pkh, payload: hash160(pub) }));
+        qrWrap.classList.add('hidden');
+        uriLink.classList.add('hidden');
+        copyBtn.classList.add('hidden');
+        connectBtn.classList.add('hidden');
+        forgetBtn.classList.remove('hidden');
+        pledgeBtn.classList.remove('hidden');
+        say('connected: ' + viewerAddress);
+        renderReceipts().catch(() => {});
+      } catch (e) {
+        say('wallet handshake failed: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+
+    function wireManagerEvents() {
+      dappMgr.on('walletready', onWalletReady);
+      dappMgr.on('disconnect', (reason, msg) => {
+        say('wallet disconnected' + (msg ? ': ' + msg : ''));
+        pledgeBtn.classList.add('hidden');
+      });
+    }
 
     function receiptAmount(u) {
       try { return parseReceiptCommitment(u.token.nft.commitment).amount; } catch { return null; }
@@ -204,11 +239,11 @@ window.LovecashPledge = {
 
     connectBtn.addEventListener('click', async () => {
       connectBtn.disabled = true;
-      say('starting wallet pairing\u2026');
+      say('starting wallet pairing…');
       try {
-        // session:false — a tip page is a one-shot visit; no localStorage
-        // residue. Cost: the pairing QR is fresh on every page load.
-        dappMgr = new DappConnectionManager('lovecash', undefined, { session: false });
+        // Default session config: persists to localStorage, so a refresh
+        // (or next visit) reconnects silently — see the init path below.
+        dappMgr = new DappConnectionManager('lovecash');
         const relay = initiateDappRelay((payload) => dappMgr.updateConnection(payload.client, payload.status));
         dappMgr.attachRelay(relay);
 
@@ -224,27 +259,7 @@ window.LovecashPledge = {
         };
         say('scan the QR with Cashonize, or paste the link into it');
 
-        dappMgr.on('walletready', () => {
-          try {
-            // hdwalletv1: child 0 = receive path, index 0 = first receive address.
-            // The pledge's inputPaths [[1,'receive',0]] must match this address.
-            const pub = dappMgr.getPubkey(0, 0n);
-            if (!pub) throw new Error('wallet sent no receive-path xpub');
-            viewerAddress = unwrapAddr(encodeCashAddress({ prefix: netPrefix, type: CashAddressType.p2pkh, payload: hash160(pub) }));
-            qrWrap.classList.add('hidden');
-            uriLink.classList.add('hidden');
-            copyBtn.classList.add('hidden');
-            pledgeBtn.classList.remove('hidden');
-            say('connected: ' + viewerAddress);
-            renderReceipts().catch(() => {});
-          } catch (e) {
-            say('wallet handshake failed: ' + (e && e.message ? e.message : String(e)));
-          }
-        });
-        dappMgr.on('disconnect', (reason, msg) => {
-          say('wallet disconnected' + (msg ? ': ' + msg : ''));
-          pledgeBtn.classList.add('hidden');
-        });
+        wireManagerEvents();
       } catch (e) {
         say('pairing failed: ' + (e && e.message ? e.message : String(e)));
       } finally {
@@ -304,5 +319,47 @@ window.LovecashPledge = {
         pledgeBtn.disabled = false;
       }
     });
+
+    // Forget: clear the stored session so the next visit re-pairs.
+    forgetBtn.addEventListener('click', async () => {
+      try {
+        if (dappMgr) {
+          dappMgr.clearStoredSession();
+          await dappMgr.sendDisconnect('viewer left');
+        }
+      } catch { /* wallet already gone */ }
+      dappMgr = null;
+      viewerAddress = null;
+      pledgeBtn.classList.add('hidden');
+      forgetBtn.classList.add('hidden');
+      receiptsLabel.classList.add('hidden');
+      receiptsList.textContent = '';
+      receiptsWhy.classList.add('hidden');
+      connectBtn.classList.remove('hidden');
+      say('wallet forgotten — connect again to pledge');
+    });
+
+    // Silent reconnect: a stored session restores the wallet's xpubs (the
+    // address derives locally, no round-trip) and re-pairs over the relay
+    // without a QR. Sign requests queue until the wallet app reopens.
+    const stored = loadSession();
+    if (stored && stored.walletPublicKey) {
+      connectBtn.classList.add('hidden');
+      say('reconnecting to your wallet…');
+      try {
+        dappMgr = new DappConnectionManager('lovecash');
+        const relay = initiateDappRelay(
+          (payload) => dappMgr.updateConnection(payload.client, payload.status),
+          { existingCredentials: stored },
+        );
+        dappMgr.attachRelay(relay);
+        wireManagerEvents();
+        onWalletReady(); // xpubs were restored from storage at construction
+      } catch (e) {
+        dappMgr = null;
+        connectBtn.classList.remove('hidden');
+        say('stored session failed (' + (e && e.message ? e.message : String(e)) + ') — pair again');
+      }
+    }
   },
 };
