@@ -111,7 +111,7 @@ def _src(pot_value: int, performer_pkh: str = PKH) -> PaymentSource:
             performer_pkh=performer_pkh,
         ),
     )
-    src._client = client
+    src._client = client  # type: ignore[assignment]
     return src
 
 
