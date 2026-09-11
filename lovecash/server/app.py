@@ -5,6 +5,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -246,6 +247,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                     "balance_sats": orchestrator.pot_balance,
                     "active": orchestrator.pot_active is not False,
                     "goal_sats": settings.goal_show.goal_sats,
+                    "deadline": settings.goal_show.deadline,
                     "address": settings.goal_show.address,
                 }
                 if settings.goal_show
@@ -385,13 +387,44 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
 
     @app.get("/api/utxos")
     async def api_utxos(address: str = Query(min_length=20, max_length=100)) -> dict:
-        """UTXOs for any address, token data included (viewer funding
+        """UTXOs paying any address, token data included (viewer funding
         inputs for the pledge flow)."""
         try:
             return {"ok": True, "utxos": await orchestrator.address_utxos(address)}
         except Exception as exc:
             log.warning("address_utxos failed: %s", exc)
             return {"ok": False, "utxos": []}
+
+    _BCMR = "https://bcmr.paytaca.com/api/tokens/{}/"
+    _meta_cache: dict[str, dict[str, Any]] = {}
+
+    @app.get("/api/token_meta")
+    async def api_token_meta(
+        category: str = Query(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"),
+    ) -> dict:
+        """BCMR metadata (name/symbol/decimals) for a token category, so the
+        dashboard can show performers a token NAME instead of raw hex.
+        Proxied server-side (CORS) and cached in-memory; read-only."""
+        category = category.lower()
+        if category not in _meta_cache:
+            meta: dict[str, Any]
+            try:
+                async with httpx.AsyncClient(timeout=5) as hc:
+                    resp = await hc.get(_BCMR.format(category))
+                if resp.status_code != 200:
+                    meta = {"ok": False}
+                else:
+                    data = resp.json()
+                    meta = {
+                        "ok": True,
+                        "name": data.get("name") or "",
+                        "symbol": (data.get("token") or {}).get("symbol") or "",
+                        "decimals": (data.get("token") or {}).get("decimals"),
+                    }
+            except Exception:
+                meta = {"ok": False}
+            _meta_cache[category] = meta
+        return _meta_cache[category]
 
     # --- Performer control (auth required) ---
 

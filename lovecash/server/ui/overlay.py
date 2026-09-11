@@ -228,8 +228,10 @@ _TEMPLATE = """<!DOCTYPE html>
 
   let lastStats = { total_sats: 0, goal_sats: ALERTS.goal_sats };
   let potMode = false;  // goal_show covenant: bar tracks the pot, not tips
+  const goalLabelEl = document.getElementById("goal-label");
 
   function updateGoal(d) {
+    goalLabelEl.textContent = potMode ? "Goal show · all or nothing" : "Tip goal";
     if (potMode) {
       // handled by onPotBalance — stats messages must not clobber it
     } else if (d && typeof d.total_sats === "number") {

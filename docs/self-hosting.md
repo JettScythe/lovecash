@@ -55,6 +55,7 @@ server:
 | /api/status | GET | none | Public status (receive address, goal pot) |
 | /api/goal_pot | GET | none | Goal-show pot state (read-only Electrum proxy) |
 | /api/utxos?address= | GET | none | Address UTXO lookup (read-only Electrum proxy) |
+| /api/token_meta?category= | GET | none | Token name/symbol lookup (read-only BCMR proxy) |
 | /dashboard | GET | none* | Performer dashboard page — *controls still need the token |
 | /api/settings | GET/POST | token | Live settings read/save |
 | /panic | POST | token | Stop and block all commands |

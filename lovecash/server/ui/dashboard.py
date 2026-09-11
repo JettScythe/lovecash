@@ -179,6 +179,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     background: none; border: 0; color: #ff6b6b;
     font-size: 15px; cursor: pointer; padding: 6px 8px;
   }
+  .token-meta { font-size: 11px; color: #5cff9d; margin-top: 3px; min-height: 1em; }
   .rule-add {
     background: none; border: 1px dashed rgba(255, 255, 255, 0.25);
     color: rgba(255, 255, 255, 0.7); border-radius: 8px;
@@ -243,6 +244,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <section class="card">
       <h2>Toys</h2>
       <div id="toys"><div class="muted">loading…</div></div>
+    </section>
+    <section class="card">
+      <h2>Goal show</h2>
+      <div id="goalshow"><div class="muted">loading…</div></div>
     </section>
   </div>
 
@@ -546,6 +551,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     renderStats(data);
     renderAddress(data.address);
     renderTips((data.stats && data.stats.recent) || []);
+    renderGoalShow(data.goal_pot);
+  }
+
+  const goalshowEl = document.getElementById('goalshow');
+  function goalshowLine(label, value) {
+    const row = document.createElement('div');
+    row.style.marginBottom = '6px';
+    const lab = document.createElement('span');
+    lab.className = 'muted';
+    lab.textContent = label + ': ';
+    const val = document.createElement('span');
+    val.textContent = value;
+    row.appendChild(lab);
+    row.appendChild(val);
+    return row;
+  }
+  function renderGoalShow(pot) {
+    goalshowEl.replaceChildren();
+    if (!pot) {
+      const m = document.createElement('div');
+      m.className = 'muted';
+      m.textContent = 'No goal show configured. Covenant all-or-nothing shows are created with the contracts/ tooling for now — see docs/covenant-goal-shows.md.';
+      goalshowEl.appendChild(m);
+      return;
+    }
+    const status = document.createElement('div');
+    status.style.marginBottom = '6px';
+    const pill = document.createElement('span');
+    pill.className = 'status ' + (pot.active ? 'st-active' : 'st-done');
+    pill.textContent = pot.active ? 'live' : 'settled';
+    status.appendChild(pill);
+    goalshowEl.appendChild(status);
+    const bal = pot.balance_sats == null ? '—' : Number(pot.balance_sats).toLocaleString();
+    goalshowEl.appendChild(goalshowLine('pot', bal + ' / ' + Number(pot.goal_sats).toLocaleString() + ' sats'));
+    goalshowEl.appendChild(goalshowLine('deadline', 'block ' + pot.deadline));
+    const addr = document.createElement('div');
+    addr.className = 'muted';
+    addr.style.cssText = 'font-size:11px;word-break:break-all';
+    addr.textContent = pot.address;
+    goalshowEl.appendChild(addr);
   }
 
   async function pollToys() {
@@ -652,8 +697,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     r = r || {};
     const row = document.createElement('div');
     row.className = 'rule-row token';
-    row.appendChild(ruleField('name', textInput(r.name, 'e.g. fan token')));
-    row.appendChild(ruleField('category (64 hex)', textInput(r.category, 'token category id')));
+    const nameIn = textInput(r.name, 'e.g. fan token');
+    const catIn = textInput(r.category, 'token category id');
+    const catWrap = ruleField('category (64 hex)', catIn);
+    const meta = document.createElement('div');
+    meta.className = 'token-meta';
+    catWrap.appendChild(meta);
+    row.appendChild(ruleField('name', nameIn));
+    row.appendChild(catWrap);
+    async function lookupMeta() {
+      const cat = catIn.value.trim().toLowerCase();
+      meta.textContent = '';
+      if (!/^[0-9a-f]{64}$/.test(cat)) return;
+      meta.textContent = 'looking up…';
+      try {
+        const resp = await fetch('/api/token_meta?category=' + cat, { headers: tokenHeaders() });
+        const info = await resp.json();
+        if (info && info.ok && (info.name || info.symbol)) {
+          meta.textContent = '✓ ' + (info.name || info.symbol) +
+            (info.symbol && info.name ? ' (' + info.symbol + ')' : '') +
+            (info.decimals != null ? ' · ' + info.decimals + ' decimals' : '');
+          if (!nameIn.value.trim()) nameIn.value = info.name || info.symbol;
+        } else {
+          meta.textContent = 'no metadata found — check the category id';
+        }
+      } catch (e) {
+        meta.textContent = 'metadata lookup failed';
+      }
+    }
+    catIn.addEventListener('change', lookupMeta);
+    if (r.category) lookupMeta();
     row.appendChild(ruleField('min amount', numInput(r.min_amount != null ? r.min_amount : 1)));
     row.appendChild(ruleField('max amount', numInput(uncapped(r.max_amount), 'no cap')));
     row.appendChild(ruleField('action', actionSelect(r.action)));
