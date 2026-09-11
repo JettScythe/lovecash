@@ -251,7 +251,8 @@ async def test_pot_subscribed_and_balance_reported():
     client = PotFakeClient()
     balances: list[int] = []
 
-    async def on_pot(b):
+    async def on_pot(b, active):
+        assert active is False  # PotFakeClient listunspent returns nothing
         balances.append(b)
 
     src = PaymentSource(
@@ -279,7 +280,7 @@ async def test_pot_notification_updates_balance_not_tips():
     balances: list[int] = []
     fired: list = []
 
-    async def on_pot(b):
+    async def on_pot(b, active):
         balances.append(b)
 
     async def emit(ev):

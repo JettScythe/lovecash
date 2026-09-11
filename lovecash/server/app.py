@@ -170,12 +170,13 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             {"type": "address", "data": {"address": addr, "index": index}}
         )
 
-    async def _on_pot_balance(balance_sats: int) -> None:
+    async def _on_pot_balance(balance_sats: int, active: bool) -> None:
         await hub.broadcast(
             {
                 "type": "goal_pot",
                 "data": {
                     "balance_sats": balance_sats,
+                    "active": active,
                     "goal_sats": settings.goal_show.goal_sats
                     if settings.goal_show
                     else None,
@@ -243,6 +244,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "goal_pot": (
                 {
                     "balance_sats": orchestrator.pot_balance,
+                    "active": orchestrator.pot_active is not False,
                     "goal_sats": settings.goal_show.goal_sats,
                     "address": settings.goal_show.address,
                 }

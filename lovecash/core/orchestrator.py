@@ -18,7 +18,7 @@ TriggerObserver = Callable[[TriggerEvent], Awaitable[None]]
 StatusObserver = Callable[[ConnectionState], Awaitable[None]]
 TipStatusObserver = Callable[[str, TipStatus, dict], Awaitable[None]]
 AddressObserver = Callable[[str, int], Awaitable[None]]
-PotBalanceObserver = Callable[[int], Awaitable[None]]
+PotBalanceObserver = Callable[[int, bool], Awaitable[None]]  # (balance, active)
 
 
 class Orchestrator:
@@ -30,6 +30,7 @@ class Orchestrator:
         self._address_observers: list[AddressObserver] = []
         self._pot_observers: list[PotBalanceObserver] = []
         self.pot_balance: int | None = None  # goal-show pot, sats
+        self.pot_active: bool | None = None  # goal-show pot UTXO exists
         self.connection_state = ConnectionState.CONNECTED
 
         if router is None:
@@ -81,11 +82,12 @@ class Orchestrator:
     def add_pot_observer(self, obs: PotBalanceObserver) -> None:
         self._pot_observers.append(obs)
 
-    async def _broadcast_pot_balance(self, balance_sats: int) -> None:
+    async def _broadcast_pot_balance(self, balance_sats: int, active: bool) -> None:
         self.pot_balance = balance_sats
+        self.pot_active = active
         for obs in self._pot_observers:
             try:
-                await obs(balance_sats)
+                await obs(balance_sats, active)
             except Exception as exc:
                 log.error("Pot-balance observer error: %s", exc)
 

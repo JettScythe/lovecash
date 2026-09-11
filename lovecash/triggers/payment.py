@@ -23,7 +23,7 @@ log = logging.getLogger("lovecash.source.payment")
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
 AddressFn = Callable[[str, int], Awaitable[None]]
 TipStatusFn = Callable[[str, TipStatus, dict], Awaitable[None]]
-PotBalanceFn = Callable[[int], Awaitable[None]]
+PotBalanceFn = Callable[[int, bool], Awaitable[None]]  # (balance, pot utxo exists)
 
 
 class PaymentSource(TriggerSource):
@@ -233,11 +233,23 @@ class PaymentSource(TriggerSource):
             )
         total = int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
         log.info("Goal pot balance: %d sats", total)
+        try:
+            pot = await self.pot_utxo()
+        except Exception as exc:
+            # Transient listunspent failure must not hide the show UI or
+            # block balance reporting — assume still active.
+            log.warning("pot utxo lookup failed: %s", exc)
+            pot = None
+            active = True
+        else:
+            active = pot is not None
         if self._on_pot_balance:
-            await self._on_pot_balance(total)
-        await self._maybe_auto_claim(total)
+            await self._on_pot_balance(total, active)
+        await self._maybe_auto_claim(total, pot)
 
-    async def _maybe_auto_claim(self, pot_balance: int) -> None:
+    async def _maybe_auto_claim(
+        self, pot_balance: int, pot: dict | None = None
+    ) -> None:
         """Goal met -> settle the pot to the performer automatically.
 
         claim() is permissionless (no signatures, payout locked to the
@@ -248,7 +260,8 @@ class PaymentSource(TriggerSource):
         gs = self._goal_show
         if gs is None or not gs.performer_pkh or pot_balance < gs.goal_sats:
             return
-        pot = await self.pot_utxo()
+        if pot is None:
+            pot = await self.pot_utxo()
         if pot is None:
             return
         outpoint = f"{pot['tx_hash']}:{pot['tx_pos']}"

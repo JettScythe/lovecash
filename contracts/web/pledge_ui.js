@@ -48,6 +48,12 @@ window.LovecashPledge = {
     if (!info.configured) return; // read-only panel (no wallet transport gate anymore)
     const mount = panelEl.querySelector('#pot-pledge-mount');
     if (!mount) return;
+    if (!info.utxo) {
+      // Pot UTXO gone => claimed (refunds keep the pot running). Nothing
+      // left to pledge or refund — say so and stop.
+      mount.appendChild(el('p', 'hint', 'This goal show is over — the pot was claimed.'));
+      return;
+    }
     // The covenant address tells us which network this show lives on.
     const netPrefix = decodeAnyAddr(info.address).prefix;
 

@@ -357,7 +357,11 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
   var potFillEl = document.getElementById("pot-fill");
 
   function renderGoalPot(pot) {
-    if (!pot) return;
+    if (!pot || pot.active === false) {
+      // Unconfigured, or the show settled (pot claimed) — no card at all.
+      goalPotEl.classList.add("hidden");
+      return;
+    }
     var bal = typeof pot.balance_sats === "number" ? pot.balance_sats : 0;
     var goal = pot.goal_sats || 0;
     var pct = goal > 0 ? Math.min(100, (bal / goal) * 100) : 0;

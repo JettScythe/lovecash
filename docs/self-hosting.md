@@ -46,14 +46,26 @@ server:
 
 | Endpoint | Method | Auth | Purpose |
 |---|---|---|---|
+| /tip | GET | none | Public viewer tip page (QR + goal-show pledges) |
 | /overlay | GET | none | OBS browser source page |
 | /overlay-ws | WS | none | Live tip events |
 | /qr.png?amount= | GET | none | Tip QR image |
 | /qr.svg | GET | none | Vector tip QR |
 | /uri?amount= | GET | none | BIP21 URI as JSON |
+| /api/status | GET | none | Public status (receive address, goal pot) |
+| /api/goal_pot | GET | none | Goal-show pot state (read-only Electrum proxy) |
+| /api/utxos?address= | GET | none | Address UTXO lookup (read-only Electrum proxy) |
+| /dashboard | GET | none* | Performer dashboard page — *controls still need the token |
+| /api/settings | GET/POST | token | Live settings read/save |
 | /panic | POST | token | Stop and block all commands |
 | /resume | POST | token | Clear the panic stop |
 | /health | GET | none | Liveness and stop state |
+
+Viewer-facing tip page: link your audience to `https://your-domain/tip`.
+HTTPS is effectively required for goal-show pledges — wallet pairing and
+clipboard copy need a secure context. A tunnel (Tailscale Funnel,
+Cloudflare Tunnel) in front of the loopback relay works too, no domain or
+router changes needed.
 
 ## Environment variable overrides
 

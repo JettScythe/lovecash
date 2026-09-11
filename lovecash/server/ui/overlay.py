@@ -252,6 +252,11 @@ _TEMPLATE = """<!DOCTYPE html>
   function onPotBalance(d) {
     if (!d || typeof d.balance_sats !== "number") return;
     potMode = true;
+    if (d.active === false) {
+      // Show settled (pot claimed) — drop the bar entirely.
+      goalEl.style.display = "none";
+      return;
+    }
     lastStats.total_sats = d.balance_sats;
     if (typeof d.goal_sats === "number") lastStats.goal_sats = d.goal_sats;
     updateGoal();
