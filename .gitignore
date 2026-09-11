@@ -22,4 +22,5 @@ scratch_*.py
 contracts/node_modules/
 contracts/package-lock.json
 contracts/.chipnet-wif
+contracts/.chipnet-shows.json
 contracts/web-dist/
