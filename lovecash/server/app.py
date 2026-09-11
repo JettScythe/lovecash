@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from lovecash.bch.payment import build_uri, qr_png, qr_svg
 from lovecash.config import AlertConfig, Limits, Settings
 from lovecash.core.orchestrator import Orchestrator
-from lovecash.models import TipRule
+from lovecash.models import TipRule, TokenRule
 from lovecash.server.relay import RelayHub
 from lovecash.server.ui import DASHBOARD_HTML, TIP_HTML, render_overlay
 from lovecash.triggers.events import TriggerEvent
@@ -32,6 +32,7 @@ class SettingsUpdate(BaseModel):
 
     limits: Limits | None = None
     rules: list[TipRule] | None = None
+    token_rules: list[TokenRule] | None = None
     alerts: AlertConfig | None = None
 
 
@@ -39,6 +40,18 @@ def _apply_in_place(model: BaseModel, new: BaseModel) -> None:
     # Mutate, don't rebind: players/overlay closures hold this object.
     for name, value in new:
         setattr(model, name, value)
+
+
+def _token_menu(settings: Settings) -> list[dict]:
+    """Public viewer-facing token tip menu: one entry per category, with
+    the lowest accepted amount as the entry price. Category hex is the
+    identity — display names come from rule names, not tickers."""
+    by_cat: dict[str, dict] = {}
+    for r in settings.token_rules:
+        cur = by_cat.get(r.category)
+        if cur is None or r.min_amount < cur["min_amount"]:
+            by_cat[r.category] = {"category": r.category, "min_amount": r.min_amount}
+    return list(by_cat.values())
 
 
 class SessionStats:
@@ -63,6 +76,7 @@ class SessionStats:
             "amount_sats": event.amount_sats,
             "usd": round(event.amount_sats / 1e8 * usd, 2) if usd else None,
             "memo": event.memo,
+            "tokens": [t.model_dump() for t in event.tokens],
             "status": TipStatus.ACTIVE,
             "at": time.time(),
         }
@@ -104,9 +118,15 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         and the running totals for the goal bar."""
         if event.kind != "payment":
             return
+        # Drop receipts for categories we have no rules for: the token
+        # address is public, so anyone can dust it with spam tokens —
+        # those must not fire alerts or clutter the dashboard.
+        if event.tokens:
+            known = {r.category for r in settings.token_rules}
+            event.tokens = [t for t in event.tokens if t.category in known]
         price = orchestrator.current_price_usd()
         stats.record_tip(event, price)
-        if event.amount_sats >= alerts.min_sats:
+        if event.amount_sats >= alerts.min_sats or event.tokens:
             usd = round(event.amount_sats / 1e8 * price, 2) if price else None
             await hub.broadcast(
                 {
@@ -117,6 +137,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                         "confirmations": event.confirmations,
                         "usd": usd,
                         "memo": event.memo,
+                        "tokens": [t.model_dump() for t in event.tokens],
                     },
                 }
             )
@@ -201,7 +222,8 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "ok": True,
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
-            "address": orchestrator.current_address(),
+            "address": orchestrator.current_tip_address(),
+            "token_menu": _token_menu(settings),
             "price_usd": orchestrator.current_price_usd(),
             "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),
@@ -254,7 +276,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         message: str | None = Query(default=None, max_length=200),
     ) -> Response:
         uri = build_uri(
-            orchestrator.current_address(),
+            orchestrator.current_tip_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
             message=message,
@@ -267,7 +289,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         message: str | None = Query(default=None, max_length=200),
     ):
         uri = build_uri(
-            orchestrator.current_address(),
+            orchestrator.current_tip_address(),
             amount_bch=Decimal(str(amount)) if amount else None,
             label="lovecash tip",
             message=message,
@@ -281,7 +303,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
     ) -> dict:
         return {
             "uri": build_uri(
-                orchestrator.current_address(),
+                orchestrator.current_tip_address(),
                 amount_bch=Decimal(str(amount)) if amount else None,
                 message=message,
             )
@@ -307,6 +329,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         return {
             "limits": settings.limits.model_dump(),
             "rules": [r.model_dump() for r in settings.rules],
+            "token_rules": [r.model_dump() for r in settings.token_rules],
             "alerts": alerts.model_dump(),
             "persisted": config_path is not None,
         }
@@ -319,9 +342,16 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             _apply_in_place(settings.limits, body.limits)
             orchestrator.router.refresh_limits()  # per-toy controller copies
             applied.append("limits")
-        if body.rules is not None:
-            orchestrator.set_rules(body.rules)
-            settings.rules = body.rules
+        if body.rules is not None or body.token_rules is not None:
+            token_rules = (
+                body.token_rules
+                if body.token_rules is not None
+                else settings.token_rules
+            )
+            rules = body.rules if body.rules is not None else settings.rules
+            orchestrator.set_rules(rules, token_rules)
+            settings.rules = rules
+            settings.token_rules = token_rules
             applied.append("rules")
         if body.alerts is not None:
             _apply_in_place(alerts, body.alerts)

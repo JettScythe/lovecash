@@ -287,6 +287,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="set-field" style="margin-top:14px">
       <label>Tip rules (JSON — validated on save)</label>
       <textarea id="set-rules" spellcheck="false"></textarea>
+      <label>CashToken rules (JSON — optional, validated on save)</label>
+      <textarea id="set-token-rules" spellcheck="false"></textarea>
     </div>
     <button id="settings-save" type="button">Save settings</button>
     <div id="settings-msg"></div>
@@ -440,6 +442,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tdAmt.className = 'num';
       tdAmt.textContent = fmtSats(tip.amount_sats)
         + (tip.usd != null ? ' ($' + Number(tip.usd).toFixed(2) + ')' : '');
+      if (tip.tokens && tip.tokens.length) {
+        tdAmt.textContent += ' +' + tip.tokens.map((r) =>
+          fmtSats(r.amount) + ' tok').join('+');
+      }
 
       const tdMemo = document.createElement('td');
       tdMemo.className = 'memo';
@@ -555,6 +561,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   const setAccent = document.getElementById('set-accent');
   const setSound = document.getElementById('set-sound');
   const setRules = document.getElementById('set-rules');
+  const setTokenRules = document.getElementById('set-token-rules');
   const settingsMsg = document.getElementById('settings-msg');
   let settingsLoaded = false;
   let rawLimits = null; // full objects from GET — save merges over these
@@ -587,6 +594,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     setAccent.value = data.alerts.accent;
     setSound.checked = !!data.alerts.sound;
     setRules.value = JSON.stringify(data.rules, null, 2);
+    setTokenRules.value = JSON.stringify(data.token_rules || [], null, 2);
     rawLimits = data.limits;
     rawAlerts = data.alerts;
     settingsLoaded = true;
@@ -600,6 +608,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       throw new Error('rules are not valid JSON: ' + e.message);
     }
     if (!Array.isArray(rules)) throw new Error('rules must be a JSON array');
+    let tokenRules;
+    try {
+      tokenRules = JSON.parse(setTokenRules.value || '[]');
+    } catch (e) {
+      throw new Error('token rules are not valid JSON: ' + e.message);
+    }
+    if (!Array.isArray(tokenRules)) throw new Error('token rules must be a JSON array');
     const limits = Object.assign({}, rawLimits, {
       max_strength: parseInt(setStrength.value, 10),
       max_duration_s: parseFloat(setDuration.value),
@@ -613,7 +628,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       accent: setAccent.value,
       sound: setSound.checked,
     });
-    return { limits, alerts, rules };
+    return { limits, alerts, rules, token_rules: tokenRules };
   }
 
   document.getElementById('settings-save').addEventListener('click', async () => {

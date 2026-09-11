@@ -238,3 +238,10 @@ who pays sees their tip do something.
   does.
 
 After editing `config.yaml`, restart lovecash to load the changes.
+
+## Token rules
+
+Rules can also match CashToken tips — see the
+[Fan Tokens Guide](fan-tokens.md) for `token_rules`, which key off a
+token's 64-hex category ID and base-unit amounts instead of sats. Both
+rule kinds obey the same hard `limits`.

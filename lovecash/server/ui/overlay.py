@@ -191,7 +191,8 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   function showAlert(d) {
-    if (d.amount_sats < ALERTS.min_sats) return;
+    const hasTokens = d.tokens && d.tokens.length > 0;
+    if (d.amount_sats < ALERTS.min_sats && !hasTokens) return;
     const t = tier(d.amount_sats);
     const el = document.createElement("div");
     el.className = "alert " + t;
@@ -203,6 +204,16 @@ _TEMPLATE = """<!DOCTYPE html>
       parts.push("New tip!");
     }
     el.textContent = parts.join("");
+    if (hasTokens) {
+      // Token receipts: amount + short category prefix (full hex is in
+      // the dashboard). Category hex, not a ticker, is the identity.
+      const tk = document.createElement("span");
+      tk.className = "memo";
+      tk.textContent = d.tokens.map((r) =>
+        "+" + fmtSats(r.amount) + " tokens (" + String(r.category).slice(0, 8) + "…)"
+      ).join(" ");
+      el.appendChild(tk);
+    }
     if (ALERTS.show_memo && d.memo) {
       const m = document.createElement("span");
       m.className = "memo";
