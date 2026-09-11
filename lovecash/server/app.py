@@ -118,6 +118,12 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         and the running totals for the goal bar."""
         if event.kind != "payment":
             return
+        # Drop receipts for categories we have no rules for: the token
+        # address is public, so anyone can dust it with spam tokens —
+        # those must not fire alerts or clutter the dashboard.
+        if event.tokens:
+            known = {r.category for r in settings.token_rules}
+            event.tokens = [t for t in event.tokens if t.category in known]
         price = orchestrator.current_price_usd()
         stats.record_tip(event, price)
         if event.amount_sats >= alerts.min_sats or event.tokens:

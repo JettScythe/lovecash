@@ -122,7 +122,14 @@ class PaymentSource(TriggerSource):
 
     def _our_addresses(self) -> set[str]:
         addrs = {self._deriver.address(i) for i in self._sh_to_index.values()}
-        return {a.split(":")[-1] for a in addrs}
+        # Fulcrum's verbose decode may spell token-bearing outputs with
+        # the token-aware (z…/r…) address; both decode to the same
+        # payload, so count sats under either spelling.
+        return {
+            payload
+            for a in addrs
+            for payload in (a.split(":")[-1], token_variant(a).split(":")[-1])
+        }
 
     def _our_scripts(self) -> set[bytes]:
         return {
@@ -155,7 +162,13 @@ class PaymentSource(TriggerSource):
     async def _token_receipts(self, client: ElectrumClient, txid: str) -> list[TokenReceipt]:
         if not self._token_rules:
             return []
-        raw = await client.call("blockchain.transaction.get", txid)
+        try:
+            raw = await client.call("blockchain.transaction.get", txid)
+        except Exception as exc:
+            # Transport failure degrades to "no tokens", same as a parse
+            # failure — the sats path must not depend on this fetch.
+            log.warning("raw tx fetch failed for %s, ignoring tokens: %s", txid[:12], exc)
+            return []
         return self._extract_token_receipts(raw)
 
     def _default_factory(self, host, port, ssl, tls_verify) -> ElectrumClient:

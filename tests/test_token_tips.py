@@ -183,3 +183,29 @@ def test_tip_address_is_token_aware_with_rules():
     assert decode(tip)[0] == 2
     src2 = PaymentSource(_cfg(), client_factory=None)
     assert src2.current_tip_address() == src2.current_address()
+
+
+def test_sum_to_us_counts_token_aware_spelling():
+    """Fulcrum may report token outputs under the z… spelling; the sats
+    must still count."""
+    from lovecash.bch.cashaddr import token_variant
+
+    src = _setup(conf=1, require_conf=True)
+    d = XpubDeriver(XPUB)
+    src._sh_to_index = {d.scripthash(0): 0}
+    z_addr = token_variant(d.address(0))
+    tx = {"vout": [{"value": 0.00012345, "scriptPubKey": {"address": z_addr}}]}
+    sats, _ = src._sum_to_us(tx)
+    assert sats == 12345
+
+
+async def test_raw_fetch_failure_degrades_to_no_tokens():
+    """Transport failure of the raw-hex fetch must not touch the sats
+    path: receipts degrade to [], the tip still credits."""
+
+    class FailingClient:
+        async def call(self, method, *params, timeout=30):  # noqa: ASYNC109
+            raise ConnectionError("fulcrum down")
+
+    src = _setup(conf=1, require_conf=True)
+    assert await src._token_receipts(FailingClient(), "tx1") == []

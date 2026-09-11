@@ -230,6 +230,74 @@ def test_tip_alert_payload_and_min_sats_filter(monkeypatch):
             assert only["data"]["total_sats"] == 50_500
 
 
+def test_token_alert_filtered_to_configured_categories(monkeypatch):
+    """Receipts for categories without rules never alert; receipts for
+    a configured category do."""
+    import asyncio
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from lovecash.core.orchestrator import Orchestrator
+    from lovecash.models import Action, TokenReceipt, TokenRule
+    from lovecash.server.app import create_app
+
+    async def _noop_run(self):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(Orchestrator, "run", _noop_run)
+    cat = "aa" * 32
+    cfg = Settings(
+        limits=Limits(),
+        lovense=LovenseConfig(),
+        bch=BchConfig(xpub=XPUB),
+        server=ServerConfig(alerts=AlertConfig(min_sats=10_000, goal_sats=0)),
+        token_rules=[
+            TokenRule(
+                name="fan",
+                category=cat,
+                min_amount=100,
+                action=Action.VIBRATE,
+                strength=5,
+                duration_s=2,
+            )
+        ],
+    )
+    app = create_app(cfg)
+
+    def receipt(category):
+        return TokenReceipt(
+            category=category, amount=150, nft_capability=None, commitment=""
+        )
+
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        orch = app.state.orchestrator
+
+        def drive(txid, tokens):
+            client.portal.call(
+                orch._handle_event,
+                PaymentTrigger(
+                    source_id="t",
+                    txid=txid,
+                    amount_sats=546,  # dust: below min_sats
+                    confirmations=1,
+                    tokens=tokens,
+                ),
+            )
+
+        with client.websocket_connect("/overlay-ws") as ws:
+            # Spam category: stats only, no alert, receipt stripped.
+            drive("spam", [receipt("cc" * 32)])
+            only = json.loads(ws.receive_text())
+            assert only["type"] == "stats"
+
+            # Configured category: alert fires with the receipt.
+            drive("real", [receipt(cat)])
+            msgs = [json.loads(ws.receive_text()), json.loads(ws.receive_text())]
+            tip = next(m for m in msgs if m["type"] == "tip")
+            assert [t["category"] for t in tip["data"]["tokens"]] == [cat]
+
+
 def _settings_client(monkeypatch, tmp_path):
     """App wired to a real config path so settings saves persist."""
     import asyncio
