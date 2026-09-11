@@ -72,11 +72,10 @@ test('refund: pot shrinks exactly by amount, viewer nets amount - 200, receipt b
     deadline: DEADLINE,
     provider,
     funderUnlocker: viewer.sig.unlockP2PKH(),
-    refundArgs: { sig: viewer.sig, pubkey: viewer.pub },
   });
 
   assert.equal(payoutSats, 10_000n + 800n - 1000n); // viewer nets amount - 200
-  assert.deepEqual(request.inputPaths, [[0, 'receive', 0], [1, 'receive', 0]]);
+  assert.deepEqual(request.inputPaths, [[1, 'receive', 0]]); // only the receipt input signs
   // conservation: (pot + dust) = (pot - amount) + payout + fee, fee == 1000
   builder.debug(); // full VM evaluation
   await builder.send();
@@ -104,7 +103,6 @@ test('refund near-dust edge: 600-sat receipt pays out exactly 546 (fee shrinks t
     deadline: DEADLINE,
     provider,
     funderUnlocker: viewer.sig.unlockP2PKH(),
-    refundArgs: { sig: viewer.sig, pubkey: viewer.pub },
   });
   assert.equal(payoutSats, 546n);
   assert.equal(feeSats, 854n); // 600 + 800 - 546
@@ -114,16 +112,20 @@ test('refund near-dust edge: 600-sat receipt pays out exactly 546 (fee shrinks t
   assert.equal(pots[0].satoshis, 60_000n - 600n);
 });
 
-test('refund of a 546-sat receipt cannot cover its own fee (documented floor)', async () => {
+test('refund of a 546-sat receipt now fits its fee (argless covenant input shrank the tx)', async () => {
   const { provider, pot, viewer, params, addReceipt } = setup(60_000n);
-  // Fee headroom = amount + dust - 546 = 800 sats < ~825 sats the ~825-byte
-  // tx needs at 1 sat/byte. The covenant pins inputs.length == 2, so no
-  // top-up input can rescue it: 546..~570-sat receipts are fee-stuck.
-  await assert.rejects(() => buildRefundTx({
+  // Dropping the covenant sig/pubkey placeholders shrank the unlocking
+  // bytecode by ~106 bytes, so the 800-sat headroom covers min relay fee.
+  // (Moot for real shows: the 5000-sat min pledge makes such receipts
+  // unmintable — this pins the builder math only.)
+  const { builder, feeSats } = await buildRefundTx({
     artifact, contractParams: params, potUtxo: apiShape(pot), receiptUtxo: apiShape(addReceipt(546n)),
     funderAddress: mockAddr(viewer.pkh), deadline: DEADLINE, provider,
-    funderUnlocker: viewer.sig.unlockP2PKH(), refundArgs: { sig: viewer.sig, pubkey: viewer.pub },
-  }), /fee per byte/);
+    funderUnlocker: viewer.sig.unlockP2PKH(),
+  });
+  assert.equal(feeSats, 800n); // 546 + 800 - 546
+  builder.debug();
+  await builder.send();
 });
 
 test('refund builder rejects foreign receipts and sign-bit encodings before building', async () => {
@@ -141,7 +143,7 @@ test('refund builder rejects foreign receipts and sign-bit encodings before buil
   }), /not an immutable NFT/);
 });
 
-test('refund placeholder path: relay-safe request, both inputs flagged for signing', async () => {
+test('refund placeholder path: relay-safe request, only the receipt signs', async () => {
   const { provider, pot, viewer, params, addReceipt } = setup(60_000n);
   const { request } = await buildRefundTx({
     artifact,
@@ -155,10 +157,11 @@ test('refund placeholder path: relay-safe request, both inputs flagged for signi
   assert.doesNotThrow(() => JSON.stringify(request));
   assert.equal(typeof request.transaction.transaction, 'string');
   const [potSo, receiptSo] = request.transaction.sourceOutputs;
-  // covenant input carries placeholder sig+pubkey pushes (non-empty)...
+  // covenant input carries only the function selector + redeem script —
+  // refund() is argless, so NO signature placeholders...
   assert.notEqual(potSo.unlockingBytecode, '');
-  assert.ok(potSo.unlockingBytecode.includes('00'.repeat(65))); // placeholderSignature
-  assert.ok(potSo.unlockingBytecode.includes('00'.repeat(33))); // placeholderPublicKey
+  assert.ok(!potSo.unlockingBytecode.includes('00'.repeat(65)));
+  assert.ok(!potSo.unlockingBytecode.includes('00'.repeat(33)));
   // ...receipt input stays empty for the wallet to fill
   assert.equal(receiptSo.unlockingBytecode, '');
   assert.equal(receiptSo.token.nft.commitment.length / 2, 28);

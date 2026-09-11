@@ -1,9 +1,8 @@
 // Pure, transport-agnostic refund-transaction builder for the GoalShow
-// covenant. Same WizardConnect request shape as buildPledgeTx — but BOTH
-// inputs need the wallet: the receipt P2PKH (empty unlocking, filled per
-// inputPaths) and the covenant input (placeholder sig + pubkey the wallet
-// substitutes in place). Both sign with the same 'receive'/0 key.
-import { Contract, ElectrumNetworkProvider, TransactionBuilder, placeholderP2PKHUnlocker, placeholderSignature, placeholderPublicKey } from 'cashscript';
+// covenant. refund() takes no covenant arguments (the receipt's own P2PKH
+// input proves ownership and the payout is locked to the committed pkh),
+// so ONLY input 1 — the receipt — needs the wallet's signature.
+import { Contract, ElectrumNetworkProvider, TransactionBuilder, placeholderP2PKHUnlocker } from 'cashscript';
 import { hexToBin, binToHex } from '@bitauth/libauth';
 import { decodeAddr, mapUtxo, toRelaySourceOutput } from './pledge_tx.mjs';
 
@@ -36,7 +35,6 @@ export function parseReceiptCommitment(commitmentHex) {
  * @param {bigint|number} [o.feeSats=1000] - shrunk automatically near the dust floor
  * @param {object} [o.provider] - testing only
  * @param {object} [o.funderUnlocker] - testing only: real unlocker for the receipt input
- * @param {object} [o.refundArgs] - testing only: { sig, pubkey } instead of placeholders
  */
 export async function buildRefundTx({
   artifact,
@@ -48,7 +46,6 @@ export async function buildRefundTx({
   feeSats = 1000n,
   provider = null,
   funderUnlocker = null,
-  refundArgs = null,
   userPrompt = 'Refund goal-show pledge',
 }) {
   deadline = BigInt(deadline);
@@ -88,12 +85,10 @@ export async function buildRefundTx({
 
   const pot = mapUtxo(potUtxo);
   const receipt = mapUtxo(receiptUtxo);
-  const sig = refundArgs?.sig ?? placeholderSignature();
-  const pubkey = refundArgs?.pubkey ?? placeholderPublicKey();
   const minting = { category: categoryDisplayHex, amount: 0n, nft: { capability: 'minting', commitment: potUtxo.token.nft.commitment ?? '' } };
 
   const builder = new TransactionBuilder({ provider: net })
-    .addInput(pot, contract.unlock.refund(sig, pubkey))
+    .addInput(pot, contract.unlock.refund())
     .addInput(receipt, funderUnlocker ?? placeholderP2PKHUnlocker(funderAddress))
     .addOutput({ to: contract.tokenAddress, amount: pot.satoshis - amount, token: minting })
     .addOutput({ to: funderAddress, amount: payout })
@@ -108,9 +103,9 @@ export async function buildRefundTx({
         broadcast: true,
         userPrompt,
       },
-      // BOTH inputs sign with the same key: covenant placeholders in input 0
-      // are substituted in place, input 1's empty P2PKH unlock is filled.
-      inputPaths: [[0, 'receive', 0], [1, 'receive', 0]],
+      // Only input 1 (the receipt's P2PKH) needs the wallet's key; the
+      // covenant input carries no placeholders since refund() is argless.
+      inputPaths: [[1, 'receive', 0]],
     },
     payoutSats: payout,
     feeSats: fee,

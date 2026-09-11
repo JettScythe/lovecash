@@ -1,8 +1,9 @@
+import re
 from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lovecash.models import TipRule, TokenRule
@@ -127,6 +128,14 @@ class AlertConfig(BaseModel):
     accent: str = "#ff5c8a"  # overlay accent color
 
 
+# Dust-scale covenant pots are pure griefing surface (serialized pot =>
+# every pledge/refund blocks the next builder) and can't cover fees
+# meaningfully. Constructor params are just redeem-script data, so this
+# floor can only be enforced at config load — keep it in sync with the
+# 5000-sat min pledge in goal_show.cash.
+MIN_GOAL_SATS = 100_000
+
+
 class GoalShowConfig(BaseModel):
     """Phase 3 covenant goal show. The pot address comes from
     contracts/address.mjs (token address, starts with r…). The watcher
@@ -134,13 +143,21 @@ class GoalShowConfig(BaseModel):
     NOT tips and never trigger toys. See docs/covenant-goal-shows.md."""
 
     address: str  # covenant token-aware P2SH32 cashaddr
-    goal_sats: int = Field(ge=1)
+    goal_sats: int = Field(ge=MIN_GOAL_SATS)
     deadline: int = Field(ge=0)  # covenant deadline (block height/time)
-    performer_pkh: str = ""  # 40-hex hash160 — needed to rebuild the covenant client-side
+    performer_pkh: str = ""  # 40-hex hash160 — enables auto-claim + client-side covenant rebuild
     # WalletConnect chain id for pairing. Default derived from the pot
     # address prefix; override for chipnet (wallets disagree on whether
     # chipnet is its own chain id or shares bchtest — verify on pairing).
     wc_chain: str | None = None
+
+    @field_validator("performer_pkh")
+    @classmethod
+    def _check_pkh(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v and not re.fullmatch(r"[0-9a-f]{40}", v):
+            raise ValueError("performer_pkh must be 40 hex chars (hash160)")
+        return v
 
     @property
     def resolved_wc_chain(self) -> str:

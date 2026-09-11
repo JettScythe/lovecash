@@ -4,20 +4,25 @@ CashScript covenant for all-or-nothing tip goals (see docs/covenant-goal-shows.m
 Constructor: `(performerPkh, goalSats, deadline, category)` — one instance per show,
 bound to one token category. The pot UTXO carries the category's minting NFT;
 `pledge(bytes20 pledgerPkh)` grows the pot and mints an immutable receipt NFT (pkh only —
-wallets sign plain P2PKH), `claim` pays the performer once the goal is met,
-`refund(sig, pubkey)` pays a pledger back after the deadline if the goal was missed.
+wallets sign plain P2PKH, min pledge 5000 sats), `claim` pays the performer once the goal
+is met (permissionless — lovecash auto-broadcasts it, see `lovecash/bch/goalshow.py`),
+`refund()` pays a pledger back after the deadline if the goal was missed (argless: the
+receipt's own P2PKH input proves ownership; the payout is locked to the committed pkh).
 
 Viewer pledge flow: browser bundle talks to Cashonize via **WizardConnect** (Nostr relay,
 no WalletConnect project id). After any contract change: `npm run build-web` (docker) then
 `cp contracts/web-dist/pledge.bundle.js lovecash/server/ui/static/pledge.bundle.js`.
 Refunds run through the same bundle: it lists the viewer's receipt NFTs and builds the
-refund tx (both inputs signed by the wallet: covenant placeholders + receipt P2PKH).
-Fee note: receipts below ~571 sats can't cover their own ~1 sat/byte refund fee
-(inputs.length == 2 blocks top-up inputs) — treat that as the practical minimum pledge.
+refund tx (only the receipt input needs the wallet's signature).
 
-Trust summary: abandonment protection only — the performer can always self-fund a claim
-(equivalent to tipping themselves). Pledgers must verify off-chain that genesis minted
-exactly one minting NFT and it sits in the pot. Seed the pot with >= 678 sats (token dust floor).
+Deploy flow (chipnet_e2e.mjs): genesis IS the seed — one transaction creates the minting
+NFT directly into the covenant, so verifying a show is a one-tx check (exactly one token
+output, the minting NFT, locked to the covenant). Never split mint-then-seed: the gap
+lets the deployer forge receipts to their own pkh. Seed >= 678 sats (token dust floor).
+
+Trust summary: abandonment protection only — the performer can always self-fund a claim,
+even after the deadline (CLTV gives no upper bound); pledgers should refund promptly when
+the window opens (first-seen relay wins the race). See docs/covenant-goal-shows.md.
 
 Compile: `docker run --rm -v "$PWD/contracts:/w" -w /w node:22-alpine sh -c "npm install --no-audit --no-fund && npx cashc goal_show.cash -o goal_show.json"`
 Test:    `docker run --rm -v "$PWD/contracts:/w" -w /w node:22-alpine sh -c "npm install --no-audit --no-fund && npm test"`

@@ -84,9 +84,14 @@ const pledger = { ...(() => { const priv = generatePrivateKey(); const pub = sec
 pledger.sig = new SignatureTemplate(pledger.priv);
 console.log('pledger:  ', bchtest(pledger.pkh));
 
-// genesis spends a vout-0 utxo at input index 0; its parent txid becomes the
-// category (display-order hex; constructor param wants raw = reversed).
-async function genesis(changeFrom, inst) {
+// genesis+seed in ONE transaction: the minting NFT is created directly
+// into the covenant (category = the spent vout-0 parent's txid, known
+// pre-broadcast). A split mint-then-seed flow leaves a window where the
+// performer can mint forged receipts to their own pkh and later drain
+// refunds — the single-tx flow collapses chain-of-custody verification
+// to "genesis tx has exactly one token output: the minting NFT, locked
+// to the covenant" (see docs/covenant-goal-shows.md).
+async function genesisSeed(goalSats, deadline, inst, changeFrom = null) {
   const log = (step) => logTx(inst, step);
   let parent = changeFrom ?? (await provider.getUtxos(address))
     .filter((u) => u.vout === 0 && !u.token && u.satoshis >= 50_000n)
@@ -102,13 +107,16 @@ async function genesis(changeFrom, inst) {
     parent = await waitForUtxo(provider, address, (u) => u.txid === txid && u.vout === 0, 'self-send vout 0');
   }
   const category = parent.txid;
+  const contract = newContract(goalSats, deadline, category);
+  if (POT_SEED < 678n) throw new Error('POT_SEED below the token-output dust floor');
   const txid = await new TransactionBuilder({ provider })
     .addInput(parent, performer.sig.unlockP2PKH())
-    .addOutput({ to: p2pkhLock(performer.pkh), amount: parent.satoshis - NFT_DUST - FEE }) // vout 0: change, keeps a vout-0 spare
-    .addOutput({ to: p2pkhLock(performer.pkh), amount: NFT_DUST, token: { category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
-    .send().then(log('genesis'));
-  const mintNft = await waitForUtxo(provider, bchtest(performer.pkh, true), (u) => u.txid === txid && u.token?.nft?.capability === 'minting', 'minting NFT');
-  return { category, mintNft, change: { txid, vout: 0, satoshis: parent.satoshis - NFT_DUST - FEE } };
+    .addOutput({ to: p2pkhLock(performer.pkh), amount: parent.satoshis - POT_SEED - FEE }) // vout 0: tokenless change
+    .addOutput({ to: contract.tokenAddress, amount: POT_SEED, token: { category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
+    .send().then(log('genesis+seed'));
+  const pot = await waitForUtxo(provider, contract.tokenAddress, (u) => u.txid === txid, 'pot');
+  if (pot.token?.nft?.capability !== 'minting') exit('deployed pot is missing its minting NFT');
+  return { category, contract, pot, change: { txid, vout: 0, satoshis: parent.satoshis - POT_SEED - FEE } };
 }
 
 const newContract = (goalSats, deadline, categoryHex) =>
@@ -125,26 +133,17 @@ if (deployMode) {
   const height = await provider.getBlockHeight();
   const goalSats = refundTest ? 500_000n : 50_000n;
   const deadline = refundTest ? height - 1000 : height + 100_000;
-  const gen = await genesis(null, 'deploy');
-  const contract = newContract(goalSats, deadline, gen.category);
-  const seedTxid = await new TransactionBuilder({ provider })
-    .addInput(gen.mintNft, performer.sig.unlockP2PKH())
-    .addInput(gen.change, performer.sig.unlockP2PKH())
-    .addOutput({ to: contract.tokenAddress, amount: 10_000n, token: { category: gen.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
-    .addOutput({ to: p2pkhLock(performer.pkh), amount: gen.change.satoshis + NFT_DUST - 10_000n - FEE })
-    .send().then(logTx('deploy', 'seed'));
-  const pot = await waitForUtxo(provider, contract.tokenAddress, (u) => u.txid === seedTxid, 'deployed pot');
-  if (pot.token?.nft?.capability !== 'minting') exit('deployed pot is missing its minting NFT');
+  const gen = await genesisSeed(goalSats, deadline, 'deploy');
   console.log(JSON.stringify({
     categoryDisplayHex: gen.category,
     categoryRawHex: binToHex(hexToBin(gen.category).reverse()),
     performerPkh: binToHex(performer.pkh),
     goalSats: Number(goalSats),
     deadline,
-    potTokenAddress: contract.tokenAddress,
-    potAddress: contract.address,
-    seedTxid,
-    genesisTxid: txids.deploy.genesis,
+    potTokenAddress: gen.contract.tokenAddress,
+    potAddress: gen.contract.address,
+    seedTxid: gen.pot.txid,
+    genesisTxid: gen.pot.txid, // one-tx flow: genesis IS the seed
     currentHeight: height,
   }, null, 2));
   process.exit(0);
@@ -152,21 +151,23 @@ if (deployMode) {
 
 // ---------- Instance A: goal met -> claim ----------
 console.log('\n--- instance A (goal 8000, deadline 8000000) ---');
-const genA = await genesis(null, 'A');
+// Fund the pledger with plain BCH first (no tokens — irrelevant to the
+// genesis-verification story). vout 0 is performer's change, kept as the
+// vout-0 parent for instance B's genesis.
+const funderSeed = (await provider.getUtxos(address)).filter((u) => !u.token).sort((a, b) => Number(b.satoshis - a.satoshis))[0];
+const fundTxid = await new TransactionBuilder({ provider })
+  .addInput(funderSeed, performer.sig.unlockP2PKH())
+  .addOutput({ to: p2pkhLock(performer.pkh), amount: funderSeed.satoshis - 20_000n - FEE }) // vout 0: spare for genesis B
+  .addOutput({ to: p2pkhLock(pledger.pkh), amount: 20_000n })
+  .send().then(logTx('A', 'fund-pledger'));
+const pledgerFunds = await waitForUtxo(provider, bchtest(pledger.pkh), (u) => u.txid === fundTxid, 'pledger funding');
+
+const genA = await genesisSeed(8_000n, 8_000_000, 'A');
 console.log('category A:', genA.category);
-const contractA = newContract(8_000n, 8_000_000, genA.category);
+const contractA = genA.contract;
+const potA = genA.pot;
 
-const seedAtxid = await new TransactionBuilder({ provider })
-  .addInput(genA.mintNft, performer.sig.unlockP2PKH())
-  .addInput(genA.change, performer.sig.unlockP2PKH())
-  .addOutput({ to: p2pkhLock(performer.pkh), amount: genA.change.satoshis + NFT_DUST - POT_SEED - 12_000n - FEE }) // vout 0: spare for genesis B
-  .addOutput({ to: contractA.tokenAddress, amount: POT_SEED, token: { category: genA.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
-  .addOutput({ to: p2pkhLock(pledger.pkh), amount: 12_000n })
-  .send().then(logTx('A', 'seed'));
-const potA = await waitForUtxo(provider, contractA.tokenAddress, (u) => u.txid === seedAtxid, 'pot A');
-const pledgerFunds = await waitForUtxo(provider, bchtest(pledger.pkh), (u) => u.txid === seedAtxid, 'pledger funding');
-
-const pledgeA = 5_000n;
+const pledgeA = 5_000n; // == the covenant's minimum pledge
 const pledgeAtxid = await new TransactionBuilder({ provider })
   .addInput(potA, contractA.unlock.pledge(pledger.pkh))
   .addInput(pledgerFunds, pledger.sig.unlockP2PKH())
@@ -193,21 +194,14 @@ console.log('instance A settled: pot claimed by performer');
 
 // ---------- Instance B: goal missed -> refund, then failed claim ----------
 console.log('\n--- instance B (goal 100000, deadline 1) ---');
-const spareVout0 = await waitForUtxo(provider, address, (u) => u.txid === seedAtxid && u.vout === 0, 'vout-0 spare');
-const genB = await genesis(spareVout0, 'B');
+const spareVout0 = await waitForUtxo(provider, address, (u) => u.txid === fundTxid && u.vout === 0, 'vout-0 spare');
+const genB = await genesisSeed(100_000n, 1, 'B', spareVout0);
 console.log('category B:', genB.category);
-const contractB = newContract(100_000n, 1, genB.category);
-
-const seedBtxid = await new TransactionBuilder({ provider })
-  .addInput(genB.mintNft, performer.sig.unlockP2PKH())
-  .addInput(genB.change, performer.sig.unlockP2PKH())
-  .addOutput({ to: contractB.tokenAddress, amount: POT_SEED, token: { category: genB.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
-  .addOutput({ to: p2pkhLock(performer.pkh), amount: genB.change.satoshis + NFT_DUST - POT_SEED - FEE })
-  .send().then(logTx('B', 'seed'));
-const potB = await waitForUtxo(provider, contractB.tokenAddress, (u) => u.txid === seedBtxid, 'pot B');
+const contractB = genB.contract;
+const potB = genB.pot;
 
 const pledgerChangeA = await waitForUtxo(provider, bchtest(pledger.pkh), (u) => u.txid === pledgeAtxid && !u.token, 'pledger change');
-const pledgeB = 2_000n;
+const pledgeB = 5_000n; // covenant minimum pledge
 const pledgeBtxid = await new TransactionBuilder({ provider })
   .addInput(potB, contractB.unlock.pledge(pledger.pkh))
   .addInput(pledgerChangeA, pledger.sig.unlockP2PKH())
@@ -220,7 +214,7 @@ const potB2 = await waitForUtxo(provider, contractB.tokenAddress, (u) => u.txid 
 const receiptB = await waitForUtxo(provider, bchtest(pledger.pkh, true), (u) => u.txid === pledgeBtxid && u.token?.nft, 'receipt NFT B');
 
 const refundBtxid = await new TransactionBuilder({ provider })
-  .addInput(potB2, contractB.unlock.refund(pledger.sig, pledger.pub))
+  .addInput(potB2, contractB.unlock.refund())
   .addInput(receiptB, pledger.sig.unlockP2PKH())
   .addOutput({ to: contractB.tokenAddress, amount: potB2.satoshis - pledgeB, token: { category: genB.category, amount: 0n, nft: { capability: 'minting', commitment: '' } } })
   .addOutput({ to: p2pkhLock(pledger.pkh), amount: pledgeB + NFT_DUST - FEE })

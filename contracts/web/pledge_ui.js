@@ -54,18 +54,19 @@ window.LovecashPledge = {
     const hint = panelEl.querySelector('#pot-hint');
     if (hint) {
       hint.textContent = 'Pledges go into a smart-contract pot, not the performer\u2019s wallet. ' +
-        'If the goal isn\u2019t reached by the deadline, your receipt NFT is your on-chain refund ticket.';
+        'Goal met: the pot pays the performer automatically. Goal missed at the deadline: ' +
+        'your receipt NFT is your refund ticket — refund promptly when the window opens.';
     }
 
     const amountInput = el('input');
     amountInput.type = 'number';
-    amountInput.min = '546';
+    amountInput.min = '5000';
     amountInput.step = '1';
     amountInput.inputMode = 'numeric';
-    amountInput.placeholder = 'Pledge amount in sats (min 546)';
+    amountInput.placeholder = 'Pledge amount in sats (min 5000)';
     amountInput.setAttribute('aria-label', 'Pledge amount in sats');
     const pledgeHint = el('p', 'hint',
-      'Under ~600 sats can\u2019t be refunded later — the refund tx\u2019s own fee exceeds them.');
+      'Minimum pledge 5000 sats — the covenant requires it so every receipt can always cover its own refund fee.');
     pledgeHint.style.textAlign = 'left';
     amountInput.insertAdjacentElement('afterend', pledgeHint);
     const connectBtn = el('button', 'btn-primary', 'Connect wallet (Cashonize)');
@@ -178,18 +179,14 @@ window.LovecashPledge = {
         const amount = receiptAmount(receipt);
         const row = el('div', 'token-row');
         row.appendChild(el('div', 'tk-min', amount.toLocaleString() + ' sats pledged'));
-        // A refund tx needs ~825 sats of fee and the covenant caps inputs
-        // at 2, so tiny receipts can't pay their own way out. Headroom:
-        // amount + 800 (receipt dust) - 546 (payout floor) >= fee.
-        const tooSmall = amount < 571;
-        const label = tooSmall
-          ? 'Too small to refund (fee exceeds it)'
-          : open
-            ? 'Refund ' + amount.toLocaleString() + ' sats'
-            : 'Refund (not open yet)';
+        // The 5000-sat min pledge guarantees every receipt covers its own
+        // refund fee (payout = amount + receipt dust - fee, fee <= 1000).
+        const label = open
+          ? 'Refund ' + amount.toLocaleString() + ' sats'
+          : 'Refund (not open yet)';
         const btn = el('button', 'btn-primary', label);
         btn.type = 'button';
-        btn.disabled = !open || tooSmall;
+        btn.disabled = !open;
         btn.addEventListener('click', async () => {
           btn.disabled = true;
           sayResult('building refund transaction\u2026');

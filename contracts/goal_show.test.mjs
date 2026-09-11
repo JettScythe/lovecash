@@ -66,14 +66,15 @@ function pledgeTx({ provider, contract, pot, pledger, amount, locktime = DEADLIN
 }
 
 // Builds a refund tx: pot + receipt -> pot-amount, payout to pledger.
-function refundTx({ provider, contract, pot, pledger, amount, locktime = DEADLINE, signer = null, receiptPkh = null, receiptCapability = 'none', commitmentHex = null, continuation = null, payout = null, extraFunding = null, potFirst = true }) {
+// refund() takes no args: the receipt's own P2PKH input proves ownership.
+function refundTx({ provider, contract, pot, pledger, amount, locktime = DEADLINE, receiptPkh = null, receiptCapability = 'none', commitmentHex = null, continuation = null, payout = null, extraFunding = null, potFirst = true }) {
   const receipt = provider.addUtxo(binToHex(p2pkhLock(pledger.pkh)), {
     txid: nextTxid(), vout: 0, satoshis: RECEIPT_DUST,
     token: { category: CATEGORY, amount: 0n, nft: { capability: receiptCapability, commitment: commitmentHex ?? receiptCommitment(receiptPkh ?? pledger.pkh, amount) } },
   });
   const builder = new TransactionBuilder({ provider });
   const inputs = [
-    [pot, contract.unlock.refund(signer ?? pledger.sig, pledger.pub)],
+    [pot, contract.unlock.refund()],
     [receipt, pledger.sig.unlockP2PKH()],
   ];
   if (!potFirst) inputs.reverse();
@@ -111,6 +112,13 @@ test('pledge is refused once locktime reaches the deadline', () => {
   const pot = seedPot(50_000n);
   const builder = pledgeTx({ provider, contract, pot, pledger: makeKey(), amount: 10_000n, locktime: DEADLINE });
   assert.throws(() => builder.debug(), /past deadline/);
+});
+
+test('pledge below the 5000-sat minimum is refused (dust-DoS + refund-fee floor)', () => {
+  const { provider, contract, seedPot } = setup();
+  const pot = seedPot(50_000n);
+  const builder = pledgeTx({ provider, contract, pot, pledger: makeKey(), amount: 4_999n });
+  assert.throws(() => builder.debug(), /below minimum/);
 });
 
 test('pledge cannot smuggle a forged receipt into the change output', () => {
@@ -220,20 +228,14 @@ test('refund after deadline, under goal: pot shrinks, pledger is paid, receipt b
   assert.equal(pledgerUtxos[0].token, undefined); // receipt NFT burned, not returned
 });
 
-test('refund rejects a signature from the wrong key', () => {
-  const { provider, contract, seedPot } = setup();
-  const pot = seedPot(60_000n);
-  const wrongKey = makeKey();
-  const { builder } = refundTx({ provider, contract, pot, pledger: makeKey(), amount: 10_000n, signer: wrongKey.sig });
-  assert.throws(() => builder.debug());
-});
-
-test('refund rejects a receipt committed to a different pkh', () => {
+test('refund cannot be redirected: payout must go to the committed pkh', () => {
   const { provider, contract, seedPot } = setup();
   const pot = seedPot(60_000n);
   const other = makeKey();
+  // Receipt committed to `other`, but the tx pays `pledger` — the
+  // covenant locks the payout to the commitment.
   const { builder } = refundTx({ provider, contract, pot, pledger: makeKey(), amount: 10_000n, receiptPkh: other.pkh });
-  assert.throws(() => builder.debug(), /not for this key/);
+  assert.throws(() => builder.debug(), /refund not to pledger/);
 });
 
 test('refund is rejected when the pot is not input 0', () => {
@@ -335,7 +337,7 @@ test('a receipt cannot be refunded twice', async () => {
   // spending the same receipt against the new pot must fail
   const newPot = (await provider.getUtxos(contract.tokenAddress))[0];
   const second = new TransactionBuilder({ provider })
-    .addInput(newPot, contract.unlock.refund(pledger.sig, pledger.pub))
+    .addInput(newPot, contract.unlock.refund())
     .addInput(receipt, pledger.sig.unlockP2PKH())
     .addOutput({ to: contract.tokenAddress, amount: newPot.satoshis - 10_000n, token: mintingNft() })
     .addOutput({ to: p2pkhLock(pledger.pkh), amount: 10_000n + RECEIPT_DUST - FEE })

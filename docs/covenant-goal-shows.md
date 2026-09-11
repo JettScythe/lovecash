@@ -45,14 +45,27 @@ permissionless refunds, serialized on the pot UTXO.
 The covenant enforces abandonment protection, not honesty about demand:
 
 - **Performer self-funding.** A performer can always top up the pot with
-  their own sats and claim. Economically identical to the performer
-  tipping themselves — treated as a feature, not an attack; v1 adds no
-  state machine to prevent it.
+  their own sats and claim. Pre-deadline this is economically identical
+  to the performer tipping themselves — treated as a feature; reputation
+  is the real guardrail. **Post-deadline it is sharper:** because BCH
+  enforces only time *lower* bounds (CLTV), pledge()'s `locktime <
+  deadline` is a declared bound, not an enforced one — a late pledge can
+  push an underfunded pot over goal, brick pending refunds, and claim
+  everything at zero net cost (the top-up comes back in the payout).
+  Mitigation, not elimination: lovecash auto-claims the moment the pot
+  reaches goal, and refunds open at deadline+1 — pledgers who refund
+  promptly win the race by first-seen relay policy. Pledgers should
+  treat "refund at the deadline" as a duty, not an option.
 - **Genesis verification (hard assumption).** Pledgers (or the client
-  tooling) MUST verify that the goal-show category's genesis created
-  exactly one minting NFT and that it sits in the pot UTXO. A second
-  minting NFT lets its holder forge receipts and drain the pot via
-  refund. Note the covenant binds the category in raw serialized byte
+  tooling) MUST verify the goal-show category's genesis. The supported
+  flow — `chipnet_e2e.mjs --deploy` — makes the genesis transaction ALSO
+  the seed: the minting NFT is created directly into the covenant
+  (category = parent outpoint txid, computable pre-broadcast), so
+  verification collapses to one tx: exactly one token output, the
+  minting NFT, locked to the covenant. A split mint-then-seed flow
+  leaves a window where the performer can mint forged receipts to their
+  own pkh and drain other pledgers' refunds later — never deploy that
+  way. Note the covenant binds the category in raw serialized byte
   order — the reverse of what wallets/explorers display.
 - **One category per show.** Receipts are bound to the token category,
   not to a covenant instance. Reusing a category across shows lets old
@@ -65,9 +78,14 @@ The covenant enforces abandonment protection, not honesty about demand:
 
 ## Hard problems (flagged honestly)
 
-1. **Refund UX.** No mainstream wallet knows how to spend a receipt NFT
-   into a refund. Needs a small web refund tool (scan/paste txid → build
-   + sign → broadcast). Without this, refunds are theoretical.
+1. **Refund UX.** Solved for v1: the `/tip` page lists the viewer's
+   receipt NFTs and builds the refund tx (WizardConnect → Cashonize
+   signs). refund() takes no covenant signature — the receipt's own
+   P2PKH input proves ownership and the payout is locked to the
+   committed pkh, so anyone can trigger a refund but only the rightful
+   pledger can be paid. Refunds can never be fully automatic: the
+   receipt lives in the pledger's wallet, so their signature is always
+   required — that's the non-custodial deal.
 2. **Serialized refunds.** Settlement is one input (claim spends only the
    pot), so the old 100 KB settlement-cap concern is gone. The real
    scaling cost is refunds: N pledges = N serialized refund transactions
@@ -89,6 +107,11 @@ The covenant enforces abandonment protection, not honesty about demand:
   but pot changes only refresh the overlay goal bar — pledges are not
   tips and never trigger toys. Derive the address with
   `contracts/address.mjs` (dockerized node; see contracts/README.md).
+- **Auto-claim:** the moment the watched pot balance reaches the goal,
+  the relay builds and broadcasts the permissionless claim tx itself
+  (`lovecash/bch/goalshow.py`, golden-tested byte-for-byte against
+  cashscript's TransactionBuilder). The performer is paid without
+  touching a wallet; on any failure they can still claim manually.
 - On settlement: the performer's normal tip watcher sees the payout as
   an ordinary confirmed payment — existing pipeline, unchanged.
 - **Open:** the `/tip` page pledge mode: builds the covenant transaction

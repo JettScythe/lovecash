@@ -74,10 +74,12 @@ class PaymentSource(TriggerSource):
         # Phase 3 goal-show pot: watch-only balance for the overlay goal
         # bar. Kept OUT of _sh_to_index so pot txs never enter the tip
         # pipeline — pledges are not tips.
+        self._goal_show = goal_show
         self._pot_sh: str | None = (
             to_scripthash(goal_show.address) if goal_show else None
         )
         self._on_pot_balance = on_pot_balance
+        self._claim_attempted: set[str] = set()  # pot outpoints already tried
 
     def set_token_rules(self, token_rules: list[TokenRule]) -> None:
         """Hot-swap token rules (dashboard settings save)."""
@@ -233,6 +235,46 @@ class PaymentSource(TriggerSource):
         log.info("Goal pot balance: %d sats", total)
         if self._on_pot_balance:
             await self._on_pot_balance(total)
+        await self._maybe_auto_claim(total)
+
+    async def _maybe_auto_claim(self, pot_balance: int) -> None:
+        """Goal met -> settle the pot to the performer automatically.
+
+        claim() is permissionless (no signatures, payout locked to the
+        constructor's performerPkh), so the relay can build and broadcast
+        it watch-only. Failures degrade to a log line — the performer can
+        always claim manually from any wallet.
+        """
+        gs = self._goal_show
+        if gs is None or not gs.performer_pkh or pot_balance < gs.goal_sats:
+            return
+        pot = await self.pot_utxo()
+        if pot is None:
+            return
+        outpoint = f"{pot['tx_hash']}:{pot['tx_pos']}"
+        if outpoint in self._claim_attempted:
+            return
+        self._claim_attempted.add(outpoint)
+        try:
+            from lovecash.bch.goalshow import build_claim_tx
+
+            category_raw = bytes.fromhex(pot["token"]["category"])[::-1]
+            hex_tx = build_claim_tx(
+                pot_txid=pot["tx_hash"],
+                pot_vout=int(pot["tx_pos"]),
+                pot_sats=int(pot["value"]),
+                performer_pkh=bytes.fromhex(gs.performer_pkh),
+                goal_sats=gs.goal_sats,
+                deadline=gs.deadline,
+                category_raw=category_raw,
+                pot_address=gs.address,
+            )
+            txid = await self._require_client().call(
+                "blockchain.transaction.broadcast", hex_tx
+            )
+            log.info("Goal met — pot auto-claimed to performer: %s", txid)
+        except Exception as exc:
+            log.warning("auto-claim failed (performer can claim manually): %s", exc)
 
     async def _listunspent(self, scripthash: str) -> list[dict]:
         """UTXOs for a scripthash, token data included.

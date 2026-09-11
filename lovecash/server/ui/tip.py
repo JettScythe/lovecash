@@ -242,10 +242,12 @@ TIP_HTML = """<!DOCTYPE html>
         <div id="pot-fill" style="height: 100%; width: 0%; background: linear-gradient(135deg, #ff5c8a, #ff9a5c); transition: width 0.4s ease;"></div>
       </div>
       <p class="hint" id="pot-hint" style="text-align: left;">Pledges go into a smart-contract
-        pot, not the performer&rsquo;s wallet. If the goal isn&rsquo;t reached
-        by the deadline, every pledger can claim an on-chain refund.
-        Direct-wallet pledging lands in a future release &mdash; for now this
-        bar tracks the pot live.</p>
+        pot, not the performer&rsquo;s wallet. If the goal is reached the pot
+        pays out to the performer automatically. If the deadline passes below
+        goal, your receipt NFT is your refund ticket &mdash; open it here and
+        refund in one tap. (The performer can always top up the pot
+        themselves, even after the deadline &mdash; so refund promptly when
+        the window opens.)</p>
       <div id="pot-pledge-mount"></div>
       <div class="tk-cat" id="pot-addr" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; word-break: break-all; opacity: 0.6;"></div>
     </section>

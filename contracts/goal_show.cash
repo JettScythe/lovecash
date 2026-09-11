@@ -3,13 +3,16 @@ pragma cashscript ^0.13.0;
 // GoalShow — all-or-nothing tip-goal pot (lovecash phase 3).
 //
 // One covenant instance per goal show, bound to one token category.
-// Setup: the performer creates a goal-show token category in Electron
-// Cash whose genesis mints EXACTLY ONE minting NFT, then seeds the pot
-// by sending that minting NFT plus >= 678 sats (token-output dust floor)
-// to this covenant's token address. Pledgers MUST verify the genesis
-// off-chain (see docs/covenant-goal-shows.md, "Trust assumptions"); the
-// seed sats are only recoverable via a successful claim — on an unmet
-// show they stay locked as dust.
+// Setup (chipnet_e2e.mjs --deploy does this): ONE transaction that is
+// simultaneously the token genesis AND the pot seed — the minting NFT is
+// created directly into this covenant (category = the spent parent
+// outpoint's txid, computable pre-broadcast). A split mint-then-seed
+// flow leaves a window where the performer can mint forged receipts to
+// their own pkh and later drain refunds; never do it. Pledgers verify
+// the single genesis tx (exactly one minting NFT, straight into the
+// pot). Seed >= 678 sats (token-output dust floor); the seed is only
+// recoverable via a successful claim — on an unmet show it stays
+// locked as dust.
 //
 // What the covenant guarantees (abandonment protection): funds in the pot
 // can leave ONLY as (a) the whole pot to the performer once pot >= goal,
@@ -45,10 +48,11 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
     require(this.activeInputIndex == 0, "pot must be input 0");
     require(tx.inputs.length == 2, "pledge: pot + one funding input");
     // ponytail: BCH consensus enforces time *lower* bounds only (CLTV), so
-    // "refuse after deadline" can only be a declared nLocktime bound — a
-    // determined builder sets any locktime < deadline. Harmless: a late
-    // pledge is immediately refundable by its own pledger, or it completes
-    // the goal and unlocks claim().
+    // "refuse after deadline" is unenforceable — a builder sets any
+    // locktime < deadline. A late pledge CAN brick refunds (pot crosses
+    // goal -> claim()); the mitigation is social + prompt refunds at the
+    // deadline, not a false sense of on-chain enforcement. See
+    // docs/covenant-goal-shows.md, "Trust assumptions".
     require(tx.locktime < deadline, "pledge: past deadline");
 
     // Pot (input 0) must carry this show's minting NFT.
@@ -59,7 +63,10 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
 
     // Output 0: pot continues, same covenant + NFT, value += pledge amount.
     int pledgeAmount = tx.outputs[0].value - tx.inputs[0].value;
-    require(pledgeAmount >= 546, "pledge below dust");
+    // Min pledge well above dust: the receipt must always cover its own
+    // refund fee (~800-1000 sats tx), and dust pledges are pure DoS
+    // surface (serialized pot => every pledge blocks the next builder).
+    require(pledgeAmount >= 5000, "pledge below minimum (5000 sats)");
     require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode, "pot covenant changed");
     require(tx.outputs[0].tokenCategory == potCategory, "pot NFT changed");
     require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment, "pot commitment changed");
@@ -97,7 +104,11 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
     require(tx.outputs[0].tokenCategory == 0x, "minting NFT must be burned");
   }
 
-  function refund(sig pledgerSig, pubkey pledgerKey) {
+  // No pledger signature here on purpose: the receipt NFT sits at the
+  // pledger's own P2PKH address, so spending input 1 already requires
+  // their key. The payout is locked to the committed pkh regardless —
+  // anyone triggering a refund can only pay the rightful pledger.
+  function refund() {
     require(this.activeInputIndex == 0, "pot must be input 0");
     require(tx.inputs.length == 2, "refund: pot + one receipt input");
     require(tx.time >= deadline, "refund: before deadline");
@@ -115,8 +126,6 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
     require(commitment.length == 28, "bad receipt commitment");
     bytes20 pledgerPkh, bytes8 amountBytes = commitment.split(20);
     require((amountBytes.split(7)[1] & 0x80) == 0x00, "amount sign bit set");
-    require(pledgerPkh == hash160(pledgerKey), "receipt not for this key");
-    require(checkSig(pledgerSig, pledgerKey), "bad signature");
     int amount = int(amountBytes);
     require(amount >= 546, "amount below dust");
     require(amount <= tx.inputs[0].value, "amount exceeds pot");
