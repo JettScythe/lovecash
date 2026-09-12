@@ -235,6 +235,23 @@ TIP_HTML = """<!DOCTYPE html>
       <p class="hint">Scan with any Bitcoin Cash wallet, or tap the link to open one.</p>
     </section>
 
+    <section id="goalpot" class="card hidden">
+      <div class="section-label">Goal show — all or nothing</div>
+      <div id="pot-progress" style="margin: 4px 0 8px; font-size: 15px; font-weight: 600;"></div>
+      <div style="height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
+        <div id="pot-fill" style="height: 100%; width: 0%; background: linear-gradient(135deg, #ff5c8a, #ff9a5c); transition: width 0.4s ease;"></div>
+      </div>
+      <p class="hint" id="pot-hint" style="text-align: left;">Pledges go into a smart-contract
+        pot, not the performer&rsquo;s wallet. If the goal is reached the pot
+        pays out to the performer automatically. If the deadline passes below
+        goal, your receipt NFT is your refund ticket &mdash; open it here and
+        refund in one tap. (The performer can always top up the pot
+        themselves, even after the deadline &mdash; so refund promptly when
+        the window opens.)</p>
+      <div id="pot-pledge-mount"></div>
+      <div class="tk-cat" id="pot-addr" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; word-break: break-all; opacity: 0.6;"></div>
+    </section>
+
     <section id="tokens" class="card hidden">
       <div class="section-label">Tip with fan tokens</div>
       <div id="token-list"></div>
@@ -335,6 +352,24 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
   var trackTxidEl = document.getElementById("track-txid");
   var tokensEl = document.getElementById("tokens");
   var tokenListEl = document.getElementById("token-list");
+  var goalPotEl = document.getElementById("goalpot");
+  var potProgressEl = document.getElementById("pot-progress");
+  var potFillEl = document.getElementById("pot-fill");
+
+  function renderGoalPot(pot) {
+    if (!pot || pot.active === false) {
+      // Unconfigured, or the show settled (pot claimed) — no card at all.
+      goalPotEl.classList.add("hidden");
+      return;
+    }
+    var bal = typeof pot.balance_sats === "number" ? pot.balance_sats : 0;
+    var goal = pot.goal_sats || 0;
+    var pct = goal > 0 ? Math.min(100, (bal / goal) * 100) : 0;
+    potProgressEl.textContent = fmtSats(bal) + " / " + fmtSats(goal) + " sats (" + Math.floor(pct) + "%)";
+    potFillEl.style.width = pct + "%";
+    if (pot.address) document.getElementById("pot-addr").textContent = "pot: " + pot.address;
+    goalPotEl.classList.remove("hidden");
+  }
 
   function renderTokenMenu(menu) {
     if (!menu || !menu.length) return;
@@ -656,6 +691,7 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
       if (!msg || typeof msg.type !== "string") return;
       if (msg.type === "tip") onTip(msg.data);
       else if (msg.type === "tip_status") onTipStatus(msg.data);
+      else if (msg.type === "goal_pot") renderGoalPot(msg.data);
       else if (msg.type === "address") onAddress(msg.data);
       else if (msg.type === "status") {
         var c = msg.data && msg.data.connection;
@@ -682,6 +718,7 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
       state.address = data.address;
       state.priceUsd = typeof data.price_usd === "number" ? data.price_usd : null;
       renderTokenMenu(data.token_menu);
+      renderGoalPot(data.goal_pot);
       statusOk = true;
       unreachableEl.classList.add("hidden");
       if (thanksEl.classList.contains("hidden")) pickerEl.classList.remove("hidden");
@@ -698,6 +735,16 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
   loadStatus();
   connect();
 })();
+</script>
+<script type="module">
+  // Covenant pledge flow (goal show). The bundle self-checks /api/goal_pot
+  // and stays hidden unless a WalletConnect project id is configured, so the
+  // read-only bar above is unchanged for unconfigured relays.
+  import("/static/pledge.bundle.js").then(function () {
+    if (window.LovecashPledge) {
+      window.LovecashPledge.init(document.getElementById("goalpot"));
+    }
+  }).catch(function () { /* bundle absent (not built): read-only panel */ });
 </script>
 </body>
 </html>

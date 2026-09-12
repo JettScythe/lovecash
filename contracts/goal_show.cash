@@ -1,0 +1,154 @@
+pragma cashscript ^0.13.0;
+
+// GoalShow — all-or-nothing tip-goal pot (lovecash phase 3).
+//
+// One covenant instance per goal show, bound to one token category.
+// Setup (chipnet_e2e.mjs --deploy does this): ONE transaction that is
+// simultaneously the token genesis AND the pot seed — the minting NFT is
+// created directly into this covenant (category = the spent parent
+// outpoint's txid, computable pre-broadcast). A split mint-then-seed
+// flow leaves a window where the performer can mint forged receipts to
+// their own pkh and later drain refunds; never do it. Pledgers verify
+// the single genesis tx (exactly one minting NFT, straight into the
+// pot). Seed >= 678 sats (token-output dust floor); the seed is only
+// recoverable via a successful claim — on an unmet show it stays
+// locked as dust.
+//
+// What the covenant guarantees (abandonment protection): funds in the pot
+// can leave ONLY as (a) the whole pot to the performer once pot >= goal,
+// or (b) individual refunds to receipt holders after the deadline while
+// pot < goal. What it does NOT guarantee: that the goal was met by
+// genuine audience pledges — the performer can always self-fund the
+// shortfall and claim. That is economically equivalent to the performer
+// tipping themselves, so no state machine prevents it.
+//
+// Layout: the pot is ALWAYS input 0 and output 0. It carries the minting
+// NFT; its satoshi value is the running pledge total.
+//   pledge(): pot grows; ONE immutable receipt NFT is minted to the
+//             pledger (commitment = pledgerPkh + 8-byte LE amount).
+//             Permissionless to build: takes the pkh, not the pubkey, so
+//             any wallet can fund a receipt to any pkh with a plain P2PKH
+//             signature — funding a receipt for someone else is a gift,
+//             not an attack (only that pkh's key can ever refund it).
+//   claim():  pot >= goal -> whole pot (minus fee) to performerPkh.
+//   refund(): deadline passed && pot < goal -> burn ONE receipt NFT, pay
+//             its pledger back, pot continues reduced.
+//
+// ponytail: serialized pot — one pledge (or refund) spends the pot UTXO,
+// so simultaneous pledgers/refunders race; losers rebuild on the new pot.
+// Fine for show-scale concurrency; parallel per-pledge UTXOs if it ever
+// matters. v1 shape: exactly one funding input per pledge, exactly one
+// receipt input per refund.
+contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 category) {
+
+  // Pledge takes the pledger's pubkey HASH (not the pubkey): the receipt
+  // commitment only ever needed hash160(key), so wallets never touch a
+  // covenant-input pubkey placeholder — the funding input is plain P2PKH.
+  function pledge(bytes20 pledgerPkh) {
+    require(this.activeInputIndex == 0, "pot must be input 0");
+    require(tx.inputs.length == 2, "pledge: pot + one funding input");
+    // ponytail: BCH consensus enforces time *lower* bounds only (CLTV), so
+    // "refuse after deadline" is unenforceable — a builder sets any
+    // locktime < deadline. A late pledge CAN brick refunds (pot crosses
+    // goal -> claim()); the mitigation is social + prompt refunds at the
+    // deadline, not a false sense of on-chain enforcement. See
+    // docs/covenant-goal-shows.md, "Trust assumptions".
+    require(tx.locktime < deadline, "pledge: past deadline");
+
+    // Pot (input 0) must carry this show's minting NFT.
+    bytes potCategory = tx.inputs[0].tokenCategory;
+    require(potCategory.length == 33, "pot must carry an NFT");
+    require(potCategory.split(32)[1] == 0x02, "pot NFT must be minting");
+    require(potCategory.split(32)[0] == category, "pot NFT wrong category");
+
+    // Output 0: pot continues, same covenant + NFT, value += pledge amount.
+    int pledgeAmount = tx.outputs[0].value - tx.inputs[0].value;
+    // Min pledge well above dust: the receipt must always cover its own
+    // refund fee (~800-1000 sats tx), and dust pledges are pure DoS
+    // surface (serialized pot => every pledge blocks the next builder).
+    require(pledgeAmount >= 5000, "pledge below minimum (5000 sats)");
+    require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode, "pot covenant changed");
+    require(tx.outputs[0].tokenCategory == potCategory, "pot NFT changed");
+    require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment, "pot commitment changed");
+
+    // Output 1: ONE immutable receipt NFT to the pledger; commitment =
+    // pledgerPkh + 8-byte little-endian pledge amount (28 bytes).
+    require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(pledgerPkh), "receipt not to pledger");
+    require(tx.outputs[1].tokenCategory == category, "receipt must be immutable NFT of pot category");
+    require(tx.outputs[1].nftCommitment == pledgerPkh + toPaddedBytes(pledgeAmount, 8), "receipt commitment mismatch");
+
+    // Bound outputs: without this the minting NFT could mint forged
+    // receipts in extra outputs and drain the pot via refund().
+    require(tx.outputs.length <= 3, "too many outputs");
+    if (tx.outputs.length == 3) {
+      require(tx.outputs[2].tokenCategory == 0x, "change must be tokenless");
+    }
+  }
+
+  function claim() {
+    require(this.activeInputIndex == 0, "pot must be input 0");
+    require(tx.inputs.length == 1, "claim spends the pot only");
+
+    bytes potCategory = tx.inputs[0].tokenCategory;
+    require(potCategory.length == 33, "pot must carry an NFT");
+    require(potCategory.split(32)[1] == 0x02, "pot NFT must be minting");
+    require(potCategory.split(32)[0] == category, "pot NFT wrong category");
+
+    require(tx.inputs[0].value >= goalSats, "goal not met");
+
+    // Single tokenless output: full pot (minus bounded fee) to the
+    // performer; the minting NFT is burned with the pot.
+    require(tx.outputs.length == 1, "claim pays performer only");
+    require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(performerPkh), "claim must pay performer");
+    require(tx.outputs[0].value >= tx.inputs[0].value - 1000, "fee too high");
+    require(tx.outputs[0].tokenCategory == 0x, "minting NFT must be burned");
+  }
+
+  // No pledger signature here on purpose: the receipt NFT sits at the
+  // pledger's own P2PKH address, so spending input 1 already requires
+  // their key. The payout is locked to the committed pkh regardless —
+  // anyone triggering a refund can only pay the rightful pledger.
+  function refund() {
+    require(this.activeInputIndex == 0, "pot must be input 0");
+    require(tx.inputs.length == 2, "refund: pot + one receipt input");
+    require(tx.time >= deadline, "refund: before deadline");
+    require(tx.inputs[0].value < goalSats, "goal was met");
+
+    bytes potCategory = tx.inputs[0].tokenCategory;
+    require(potCategory.length == 33, "pot must carry an NFT");
+    require(potCategory.split(32)[1] == 0x02, "pot NFT must be minting");
+    require(potCategory.split(32)[0] == category, "pot NFT wrong category");
+
+    // Input 1: exactly one receipt NFT — immutable, same category. It is
+    // burned by this spend (every output is tokenless except the pot).
+    require(tx.inputs[1].tokenCategory == category, "receipt must be immutable NFT of pot category");
+    bytes commitment = tx.inputs[1].nftCommitment;
+    require(commitment.length == 28, "bad receipt commitment");
+    bytes20 pledgerPkh, bytes8 amountBytes = commitment.split(20);
+    require((amountBytes.split(7)[1] & 0x80) == 0x00, "amount sign bit set");
+    int amount = int(amountBytes);
+    require(amount >= 546, "amount below dust");
+    require(amount <= tx.inputs[0].value, "amount exceeds pot");
+
+    // Output 0: pot continues, reduced by at most the refunded amount.
+    // `>=` (not `==`) lets the last refunder fold the receipt's dust sats
+    // into the continuation when the exact remainder would fall below the
+    // token dust floor — otherwise that refund is bricked. Growth is
+    // bounded by conservation: only the receipt's own dust can flow in.
+    require(tx.outputs[0].value >= tx.inputs[0].value - amount, "pot must absorb refund amount");
+    require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode, "pot covenant changed");
+    require(tx.outputs[0].tokenCategory == potCategory, "pot NFT changed");
+    require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment, "pot commitment changed");
+
+    // Output 1: pledger is paid their amount (minus bounded fee).
+    require(tx.outputs[1].lockingBytecode == new LockingBytecodeP2PKH(pledgerPkh), "refund not to pledger");
+    require(tx.outputs[1].value >= 546, "payment below dust");
+    require(tx.outputs[1].value >= amount - 1000, "fee too high");
+    require(tx.outputs[1].tokenCategory == 0x, "refund output must be tokenless");
+
+    require(tx.outputs.length <= 3, "too many outputs");
+    if (tx.outputs.length == 3) {
+      require(tx.outputs[2].tokenCategory == 0x, "change must be tokenless");
+    }
+  }
+}

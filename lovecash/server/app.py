@@ -4,6 +4,8 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,6 +26,7 @@ from lovecash.triggers.status import TipStatus
 log = logging.getLogger("lovecash.server")
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+_STATIC_DIR = Path(__file__).resolve().parent / "ui" / "static"
 
 
 class SettingsUpdate(BaseModel):
@@ -168,9 +171,24 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             {"type": "address", "data": {"address": addr, "index": index}}
         )
 
+    async def _on_pot_balance(balance_sats: int, active: bool) -> None:
+        await hub.broadcast(
+            {
+                "type": "goal_pot",
+                "data": {
+                    "balance_sats": balance_sats,
+                    "active": active,
+                    "goal_sats": settings.goal_show.goal_sats
+                    if settings.goal_show
+                    else None,
+                },
+            }
+        )
+
     orchestrator.add_status_observer(_on_status)
     orchestrator.add_tip_status_observer(_on_tip_status)
     orchestrator.add_address_observer(_on_address)
+    orchestrator.add_pot_observer(_on_pot_balance)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -224,8 +242,18 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "connection": orchestrator.connection_state,
             "address": orchestrator.current_tip_address(),
             "token_menu": _token_menu(settings),
-            "price_usd": orchestrator.current_price_usd(),
-            "stats": stats.snapshot(),
+            "goal_pot": (
+                {
+                    "balance_sats": orchestrator.pot_balance,
+                    "active": orchestrator.pot_active is not False,
+                    "goal_sats": settings.goal_show.goal_sats,
+                    "deadline": settings.goal_show.deadline,
+                    "address": settings.goal_show.address,
+                }
+                if settings.goal_show
+                else None
+            ),
+            "price_usd": orchestrator.current_price_usd(),            "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),
         }
 
@@ -269,6 +297,14 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         """Public viewer tipping page: amount picker + live QR."""
         return TIP_HTML
 
+    @app.get("/qr-data.png")
+    async def qr_data_ep(
+        data: str = Query(min_length=1, max_length=512),
+        scale: int = Query(default=8, ge=1, le=20),
+    ) -> Response:
+        """Generic QR for opaque data (WalletConnect pairing URI)."""
+        return Response(content=qr_png(data, scale), media_type="image/png")
+
     @app.get("/qr.png")
     async def qr_png_ep(
         amount: float | None = Query(default=None, ge=0),
@@ -308,6 +344,89 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 message=message,
             )
         }
+
+    @app.get("/static/pledge.bundle.js")
+    async def pledge_bundle() -> Response:
+        """The viewer pledge-flow bundle (built by `npm run build-web` in
+        contracts/; committed so performers never need node). The covenant
+        artifact is inlined into it at build time — no JSON route needed."""
+        path = _STATIC_DIR / "pledge.bundle.js"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="pledge bundle not built")
+        return Response(
+            content=path.read_bytes(),
+            media_type="application/javascript; charset=utf-8",
+        )
+
+    @app.get("/api/goal_pot")
+    async def api_goal_pot() -> dict:
+        """Everything the /tip pledge flow needs to build a covenant tx.
+
+        Read-only by design: this only proxies the watcher's view of the
+        chain. Note it makes the relay an Electrum listunspent proxy —
+        fine on loopback/LAN; on a public relay assume scraping and rate
+        it at your reverse proxy if it matters.
+        """
+        if not settings.goal_show:
+            return {"configured": False}
+        gs = settings.goal_show
+        # Live query, not the notification cache: the pledge/refund flow
+        # builds against this and a stale value builds a stale tx.
+        live = await orchestrator.pot_balance_live()
+        return {
+            "configured": True,
+            "address": gs.address,
+            "goal_sats": gs.goal_sats,
+            "deadline": gs.deadline,
+            "performer_pkh": gs.performer_pkh,
+            "balance_sats": live if live is not None else orchestrator.pot_balance,
+            "current_height": await orchestrator.current_height(),
+            "utxo": await orchestrator.pot_utxo(),
+        }
+
+    @app.get("/api/utxos")
+    async def api_utxos(address: str = Query(min_length=20, max_length=100)) -> dict:
+        """UTXOs paying any address, token data included (viewer funding
+        inputs for the pledge flow)."""
+        try:
+            return {"ok": True, "utxos": await orchestrator.address_utxos(address)}
+        except Exception as exc:
+            log.warning("address_utxos failed: %s", exc)
+            return {"ok": False, "utxos": []}
+
+    _BCMR = "https://bcmr.paytaca.com/api/tokens/{}/"
+    _meta_cache: dict[str, dict[str, Any]] = {}
+    _META_CACHE_MAX = 512  # bounded: keys are attacker-chosen 64-hex strings
+
+    @app.get("/api/token_meta")
+    async def api_token_meta(
+        category: str = Query(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"),
+    ) -> dict:
+        """BCMR metadata (name/symbol/decimals) for a token category, so the
+        dashboard can show performers a token NAME instead of raw hex.
+        Proxied server-side (CORS) and cached in-memory; read-only."""
+        category = category.lower()
+        if category not in _meta_cache:
+            meta: dict[str, Any]
+            try:
+                async with httpx.AsyncClient(timeout=5) as hc:
+                    resp = await hc.get(_BCMR.format(category))
+                if resp.status_code != 200:
+                    meta = {"ok": False}
+                else:
+                    data = resp.json()
+                    meta = {
+                        "ok": True,
+                        "name": data.get("name") or "",
+                        "symbol": (data.get("token") or {}).get("symbol") or "",
+                        "decimals": (data.get("token") or {}).get("decimals"),
+                    }
+            except Exception:
+                meta = {"ok": False}
+            if len(_meta_cache) >= _META_CACHE_MAX:
+                _meta_cache.pop(next(iter(_meta_cache)))  # FIFO eviction
+            _meta_cache[category] = meta
+        return _meta_cache[category]
 
     # --- Performer control (auth required) ---
 

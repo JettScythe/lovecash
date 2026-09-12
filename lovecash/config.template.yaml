@@ -113,6 +113,21 @@ server:
 
 {{ rules }}
 
+# --- Phase 3: covenant goal show (optional) ---
+# All-or-nothing tip goals enforced by a smart contract; lovecash watches
+# the pot and fills the overlay goal bar from its on-chain balance.
+# Pledges are NOT tips and never fire the toy. The address comes from
+# contracts/address.mjs (the token address, starts with r…).
+# See docs/covenant-goal-shows.md BEFORE using this with real funds.
+# goal_show:
+#   address: "bitcoincash:r..."
+#   goal_sats: 500000
+#   deadline: 900000        # covenant deadline (block height); must be >= 1
+#   performer_pkh: "..."    # your 40-hex pubkey hash (rebuilds the covenant
+#                           # client-side so viewers can pledge from wallets)
+# Wallet pledging works over WizardConnect (Cashonize v0.9.0+) — no API
+# keys or accounts needed; the /tip goal panel handles pairing by QR.
+
 # --- CashToken tips (CHIP-2022-02) ---
 # Uncomment to accept token tips. When any token_rules exist, the tip QR
 # switches to a token-aware address so wallets can attach tokens.

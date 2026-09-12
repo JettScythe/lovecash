@@ -156,16 +156,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .set-field label { display: block; font-size: 12px; opacity: 0.6; margin-bottom: 4px; }
   .set-field .val { color: #ff9a5c; font-weight: 700; }
   .set-field input[type="range"] { width: 100%; accent-color: #ff5c8a; }
-  .set-field input[type="number"], .set-field input[type="text"], .set-field select, .set-field textarea {
+  .set-field input[type="number"], .set-field input[type="text"], .set-field select {
     width: 100%; padding: 8px 10px; font: inherit; font-size: 14px;
     color: #f2f2f5; background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
   }
-  .set-field textarea {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px; min-height: 150px; resize: vertical;
-  }
   .set-field input[type="color"] { width: 48px; height: 32px; padding: 0; border: 0; background: none; }
+  .rule-row {
+    display: grid; gap: 6px; align-items: end;
+    padding: 8px; margin: 0 0 8px;
+    background: rgba(255, 255, 255, 0.04); border-radius: 8px;
+  }
+  .rule-row.tip { grid-template-columns: 1.2fr 0.65fr 0.65fr 0.9fr 0.55fr 0.5fr 0.7fr auto; }
+  .rule-row.token { grid-template-columns: 1fr 1.8fr 0.6fr 0.6fr 0.9fr 0.5fr 0.5fr 0.7fr auto auto; }
+  .rule-row label {
+    display: block; font-size: 10px; opacity: 0.55;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px;
+  }
+  .rule-row input, .rule-row select { padding: 6px 8px; font-size: 13px; }
+  .rule-row input[type="checkbox"] { width: auto; accent-color: #ff5c8a; margin-bottom: 8px; }
+  .rule-del {
+    background: none; border: 0; color: #ff6b6b;
+    font-size: 15px; cursor: pointer; padding: 6px 8px;
+  }
+  .token-meta { font-size: 11px; color: #5cff9d; margin-top: 3px; min-height: 1em; }
+  .rule-add {
+    background: none; border: 1px dashed rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.7); border-radius: 8px;
+    padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer;
+    margin-bottom: 14px;
+  }
   .set-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 20px; }
   .set-check input { accent-color: #ff5c8a; }
   #settings-save {
@@ -224,6 +244,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <section class="card">
       <h2>Toys</h2>
       <div id="toys"><div class="muted">loading…</div></div>
+    </section>
+    <section class="card">
+      <h2>Goal show</h2>
+      <div id="goalshow"><div class="muted">loading…</div></div>
     </section>
   </div>
 
@@ -285,10 +309,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
     <div class="set-field" style="margin-top:14px">
-      <label>Tip rules (JSON — validated on save)</label>
-      <textarea id="set-rules" spellcheck="false"></textarea>
-      <label>CashToken rules (JSON — optional, validated on save)</label>
-      <textarea id="set-token-rules" spellcheck="false"></textarea>
+      <label>Tip rules — the highest min-sats tier a tip qualifies for wins</label>
+      <div id="rules-editor"></div>
+      <button id="add-rule" type="button" class="rule-add">+ add tip rule</button>
+      <label>CashToken rules (optional)</label>
+      <div id="token-rules-editor"></div>
+      <button id="add-token-rule" type="button" class="rule-add">+ add token rule</button>
     </div>
     <button id="settings-save" type="button">Save settings</button>
     <div id="settings-msg"></div>
@@ -525,6 +551,46 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     renderStats(data);
     renderAddress(data.address);
     renderTips((data.stats && data.stats.recent) || []);
+    renderGoalShow(data.goal_pot);
+  }
+
+  const goalshowEl = document.getElementById('goalshow');
+  function goalshowLine(label, value) {
+    const row = document.createElement('div');
+    row.style.marginBottom = '6px';
+    const lab = document.createElement('span');
+    lab.className = 'muted';
+    lab.textContent = label + ': ';
+    const val = document.createElement('span');
+    val.textContent = value;
+    row.appendChild(lab);
+    row.appendChild(val);
+    return row;
+  }
+  function renderGoalShow(pot) {
+    goalshowEl.replaceChildren();
+    if (!pot) {
+      const m = document.createElement('div');
+      m.className = 'muted';
+      m.textContent = 'No goal show configured. Covenant all-or-nothing shows are created with the contracts/ tooling for now — see docs/covenant-goal-shows.md.';
+      goalshowEl.appendChild(m);
+      return;
+    }
+    const status = document.createElement('div');
+    status.style.marginBottom = '6px';
+    const pill = document.createElement('span');
+    pill.className = 'status ' + (pot.active ? 'st-active' : 'st-done');
+    pill.textContent = pot.active ? 'live' : 'settled';
+    status.appendChild(pill);
+    goalshowEl.appendChild(status);
+    const bal = pot.balance_sats == null ? '—' : Number(pot.balance_sats).toLocaleString();
+    goalshowEl.appendChild(goalshowLine('pot', bal + ' / ' + Number(pot.goal_sats).toLocaleString() + ' sats'));
+    goalshowEl.appendChild(goalshowLine('deadline', 'block ' + pot.deadline));
+    const addr = document.createElement('div');
+    addr.className = 'muted';
+    addr.style.cssText = 'font-size:11px;word-break:break-all';
+    addr.textContent = pot.address;
+    goalshowEl.appendChild(addr);
   }
 
   async function pollToys() {
@@ -560,12 +626,191 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   const setShowGoal = document.getElementById('set-show-goal');
   const setAccent = document.getElementById('set-accent');
   const setSound = document.getElementById('set-sound');
-  const setRules = document.getElementById('set-rules');
-  const setTokenRules = document.getElementById('set-token-rules');
+  const rulesEditor = document.getElementById('rules-editor');
+  const tokenRulesEditor = document.getElementById('token-rules-editor');
   const settingsMsg = document.getElementById('settings-msg');
   let settingsLoaded = false;
   let rawLimits = null; // full objects from GET — save merges over these
   let rawAlerts = null; // so untouched fields (queue seconds etc.) aren't defaulted
+
+  const ACTIONS = ['Vibrate', 'Thrusting', 'Depth', 'Rotate', 'Pump', 'Stop'];
+  // 2^53-1: the largest exactly-representable int — used as "no upper cap"
+  // (the server's 2^63-1 default would round-trip through JS as 2^63).
+  const NO_CAP = 9007199254740991;
+
+  function ruleField(labelText, input) {
+    const wrap = document.createElement('div');
+    const lab = document.createElement('label');
+    lab.textContent = labelText;
+    wrap.appendChild(lab);
+    wrap.appendChild(input);
+    return wrap;
+  }
+  function numInput(value, placeholder) {
+    const i = document.createElement('input');
+    i.type = 'number'; i.min = '0'; i.step = '1';
+    if (value !== '' && value != null) i.value = String(value);
+    if (placeholder) i.placeholder = placeholder;
+    return i;
+  }
+  function textInput(value, placeholder) {
+    const i = document.createElement('input');
+    i.type = 'text';
+    i.value = value || '';
+    if (placeholder) i.placeholder = placeholder;
+    return i;
+  }
+  function actionSelect(value) {
+    const s = document.createElement('select');
+    for (const a of ACTIONS) {
+      const o = document.createElement('option');
+      o.value = a; o.textContent = a;
+      s.appendChild(o);
+    }
+    s.value = ACTIONS.includes(value) ? value : 'Vibrate';
+    return s;
+  }
+  function ruleDel(row) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'rule-del'; b.textContent = '✕'; b.title = 'delete rule';
+    b.addEventListener('click', () => row.remove());
+    return b;
+  }
+  const uncapped = (v) => (v == null || v >= NO_CAP ? '' : v);
+
+  function addTipRule(r) {
+    r = r || {};
+    const row = document.createElement('div');
+    row.className = 'rule-row tip';
+    row.appendChild(ruleField('name', textInput(r.name, 'e.g. big buzz')));
+    row.appendChild(ruleField('min sats', numInput(r.min_sats != null ? r.min_sats : 0)));
+    row.appendChild(ruleField('max sats', numInput(uncapped(r.max_sats), 'no cap')));
+    row.appendChild(ruleField('action', actionSelect(r.action)));
+    row.appendChild(ruleField('strength', numInput(r.strength != null ? r.strength : 5)));
+    row.appendChild(ruleField('secs', numInput(r.duration_s != null ? r.duration_s : 5)));
+    row.appendChild(ruleField('toy', textInput(r.toy, 'all')));
+    row.appendChild(ruleDel(row));
+    rulesEditor.appendChild(row);
+  }
+
+  function addTokenRule(r) {
+    r = r || {};
+    const row = document.createElement('div');
+    row.className = 'rule-row token';
+    const nameIn = textInput(r.name, 'e.g. fan token');
+    const catIn = textInput(r.category, 'token category id');
+    const catWrap = ruleField('category (64 hex)', catIn);
+    const meta = document.createElement('div');
+    meta.className = 'token-meta';
+    catWrap.appendChild(meta);
+    row.appendChild(ruleField('name', nameIn));
+    row.appendChild(catWrap);
+    async function lookupMeta() {
+      const cat = catIn.value.trim().toLowerCase();
+      meta.textContent = '';
+      if (!/^[0-9a-f]{64}$/.test(cat)) return;
+      meta.textContent = 'looking up…';
+      try {
+        const resp = await fetch('/api/token_meta?category=' + cat, { headers: tokenHeaders() });
+        const info = await resp.json();
+        if (info && info.ok && (info.name || info.symbol)) {
+          meta.textContent = '✓ ' + (info.name || info.symbol) +
+            (info.symbol && info.name ? ' (' + info.symbol + ')' : '') +
+            (info.decimals != null ? ' · ' + info.decimals + ' decimals' : '');
+          if (!nameIn.value.trim()) nameIn.value = info.name || info.symbol;
+        } else {
+          meta.textContent = 'no metadata found — check the category id';
+        }
+      } catch (e) {
+        meta.textContent = 'metadata lookup failed';
+      }
+    }
+    catIn.addEventListener('change', lookupMeta);
+    if (r.category) lookupMeta();
+    row.appendChild(ruleField('min amount', numInput(r.min_amount != null ? r.min_amount : 1)));
+    row.appendChild(ruleField('max amount', numInput(uncapped(r.max_amount), 'no cap')));
+    row.appendChild(ruleField('action', actionSelect(r.action)));
+    row.appendChild(ruleField('strength', numInput(r.strength != null ? r.strength : 5)));
+    row.appendChild(ruleField('secs', numInput(r.duration_s != null ? r.duration_s : 5)));
+    row.appendChild(ruleField('toy', textInput(r.toy, 'all')));
+    const conf = document.createElement('input');
+    conf.type = 'checkbox';
+    conf.checked = r.require_conf !== false;
+    conf.title = 'wait for one confirmation';
+    row.appendChild(ruleField('conf', conf));
+    row.appendChild(ruleDel(row));
+    tokenRulesEditor.appendChild(row);
+  }
+
+  document.getElementById('add-rule').addEventListener('click', () => addTipRule());
+  document.getElementById('add-token-rule').addEventListener('click', () => addTokenRule());
+
+  function rowInputs(row) { return row.querySelectorAll('input'); }
+
+  function collectTipRules() {
+    const rules = [];
+    rulesEditor.querySelectorAll('.rule-row').forEach((row, idx) => {
+      const inputs = rowInputs(row);
+      const name = inputs[0].value.trim() || 'rule ' + (idx + 1);
+      const minSats = parseInt(inputs[1].value, 10);
+      if (!Number.isFinite(minSats) || minSats < 0)
+        throw new Error('rule "' + name + '": min sats must be a number >= 0');
+      const maxSats = inputs[2].value === '' ? NO_CAP : parseInt(inputs[2].value, 10);
+      if (!Number.isFinite(maxSats) || maxSats < minSats)
+        throw new Error('rule "' + name + '": max sats must be >= min sats');
+      const strength = parseInt(inputs[3].value, 10);
+      if (!Number.isFinite(strength) || strength < 0 || strength > 20)
+        throw new Error('rule "' + name + '": strength must be 0-20');
+      const duration = parseFloat(inputs[4].value);
+      if (!Number.isFinite(duration) || duration < 0)
+        throw new Error('rule "' + name + '": duration must be a number >= 0');
+      rules.push({
+        name,
+        min_sats: minSats,
+        max_sats: maxSats,
+        action: row.querySelector('select').value,
+        strength,
+        duration_s: duration,
+        toy: inputs[5].value.trim() || null,
+      });
+    });
+    return rules;
+  }
+
+  function collectTokenRules() {
+    const rules = [];
+    tokenRulesEditor.querySelectorAll('.rule-row').forEach((row, idx) => {
+      const inputs = rowInputs(row);
+      const name = inputs[0].value.trim() || 'token rule ' + (idx + 1);
+      const category = inputs[1].value.trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(category))
+        throw new Error('rule "' + name + '": category must be 64 hex chars');
+      const minAmount = parseInt(inputs[2].value, 10);
+      if (!Number.isFinite(minAmount) || minAmount < 1)
+        throw new Error('rule "' + name + '": min amount must be a number >= 1');
+      const maxAmount = inputs[3].value === '' ? NO_CAP : parseInt(inputs[3].value, 10);
+      if (!Number.isFinite(maxAmount) || maxAmount < minAmount)
+        throw new Error('rule "' + name + '": max amount must be >= min amount');
+      const strength = parseInt(inputs[4].value, 10);
+      if (!Number.isFinite(strength) || strength < 0 || strength > 20)
+        throw new Error('rule "' + name + '": strength must be 0-20');
+      const duration = parseFloat(inputs[5].value);
+      if (!Number.isFinite(duration) || duration < 0)
+        throw new Error('rule "' + name + '": duration must be a number >= 0');
+      rules.push({
+        name,
+        category,
+        min_amount: minAmount,
+        max_amount: maxAmount,
+        require_conf: inputs[7].checked,
+        action: row.querySelector('select').value,
+        strength,
+        duration_s: duration,
+        toy: inputs[6].value.trim() || null,
+      });
+    });
+    return rules;
+  }
 
   setStrength.addEventListener('input', () => {
     document.getElementById('set-strength-val').textContent = setStrength.value;
@@ -593,28 +838,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     setShowGoal.checked = data.alerts.show_goal !== false;
     setAccent.value = data.alerts.accent;
     setSound.checked = !!data.alerts.sound;
-    setRules.value = JSON.stringify(data.rules, null, 2);
-    setTokenRules.value = JSON.stringify(data.token_rules || [], null, 2);
+    rulesEditor.textContent = '';
+    (data.rules || []).forEach(addTipRule);
+    tokenRulesEditor.textContent = '';
+    (data.token_rules || []).forEach(addTokenRule);
     rawLimits = data.limits;
     rawAlerts = data.alerts;
     settingsLoaded = true;
   }
 
   function settingsBody() {
-    let rules;
-    try {
-      rules = JSON.parse(setRules.value);
-    } catch (e) {
-      throw new Error('rules are not valid JSON: ' + e.message);
-    }
-    if (!Array.isArray(rules)) throw new Error('rules must be a JSON array');
-    let tokenRules;
-    try {
-      tokenRules = JSON.parse(setTokenRules.value || '[]');
-    } catch (e) {
-      throw new Error('token rules are not valid JSON: ' + e.message);
-    }
-    if (!Array.isArray(tokenRules)) throw new Error('token rules must be a JSON array');
+    const rules = collectTipRules();
+    const tokenRules = collectTokenRules();
     const limits = Object.assign({}, rawLimits, {
       max_strength: parseInt(setStrength.value, 10),
       max_duration_s: parseFloat(setDuration.value),

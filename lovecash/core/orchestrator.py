@@ -18,6 +18,7 @@ TriggerObserver = Callable[[TriggerEvent], Awaitable[None]]
 StatusObserver = Callable[[ConnectionState], Awaitable[None]]
 TipStatusObserver = Callable[[str, TipStatus, dict], Awaitable[None]]
 AddressObserver = Callable[[str, int], Awaitable[None]]
+PotBalanceObserver = Callable[[int, bool], Awaitable[None]]  # (balance, active)
 
 
 class Orchestrator:
@@ -27,6 +28,9 @@ class Orchestrator:
         self._status_observers: list[StatusObserver] = []
         self._tip_status_observers: list[TipStatusObserver] = []
         self._address_observers: list[AddressObserver] = []
+        self._pot_observers: list[PotBalanceObserver] = []
+        self.pot_balance: int | None = None  # goal-show pot, sats
+        self.pot_active: bool | None = None  # goal-show pot UTXO exists
         self.connection_state = ConnectionState.CONNECTED
 
         if router is None:
@@ -47,6 +51,8 @@ class Orchestrator:
             on_address=self._broadcast_address,
             on_tip_status=self._broadcast_tip_status,
             token_rules=settings.token_rules,
+            goal_show=settings.goal_show,
+            on_pot_balance=self._broadcast_pot_balance,
         )
         self.add_source(self._payment_source)
 
@@ -73,6 +79,18 @@ class Orchestrator:
     def add_address_observer(self, obs: AddressObserver) -> None:
         self._address_observers.append(obs)
 
+    def add_pot_observer(self, obs: PotBalanceObserver) -> None:
+        self._pot_observers.append(obs)
+
+    async def _broadcast_pot_balance(self, balance_sats: int, active: bool) -> None:
+        self.pot_balance = balance_sats
+        self.pot_active = active
+        for obs in self._pot_observers:
+            try:
+                await obs(balance_sats, active)
+            except Exception as exc:
+                log.error("Pot-balance observer error: %s", exc)
+
     def current_address(self) -> str:
         return self._payment_source.current_address()
 
@@ -82,6 +100,18 @@ class Orchestrator:
 
     def current_price_usd(self) -> float | None:
         return self._payment_source.current_price_usd()
+
+    async def pot_utxo(self) -> dict | None:
+        return await self._payment_source.pot_utxo()
+
+    async def address_utxos(self, address: str) -> list[dict]:
+        return await self._payment_source.address_utxos(address)
+
+    async def current_height(self) -> int:
+        return await self._payment_source.current_height()
+
+    async def pot_balance_live(self) -> int | None:
+        return await self._payment_source.pot_balance_live()
 
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state

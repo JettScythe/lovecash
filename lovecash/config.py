@@ -1,8 +1,10 @@
+import os
+import re
 from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lovecash.models import TipRule, TokenRule
@@ -127,6 +129,34 @@ class AlertConfig(BaseModel):
     accent: str = "#ff5c8a"  # overlay accent color
 
 
+# Dust-scale covenant pots are pure griefing surface (serialized pot =>
+# every pledge/refund blocks the next builder) and can't cover fees
+# meaningfully. Constructor params are just redeem-script data, so this
+# floor can only be enforced at config load — keep it in sync with the
+# 5000-sat min pledge in goal_show.cash.
+MIN_GOAL_SATS = 100_000
+
+
+class GoalShowConfig(BaseModel):
+    """Phase 3 covenant goal show. The pot address comes from
+    contracts/address.mjs (token address, starts with r…). The watcher
+    only observes the pot balance for the overlay goal bar — pledges are
+    NOT tips and never trigger toys. See docs/covenant-goal-shows.md."""
+
+    address: str  # covenant token-aware P2SH32 cashaddr
+    goal_sats: int = Field(ge=MIN_GOAL_SATS)
+    deadline: int = Field(ge=0)  # covenant deadline (block height/time)
+    performer_pkh: str = ""  # 40-hex hash160 — enables auto-claim + client-side covenant rebuild
+
+    @field_validator("performer_pkh")
+    @classmethod
+    def _check_pkh(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v and not re.fullmatch(r"[0-9a-f]{40}", v):
+            raise ValueError("performer_pkh must be 40 hex chars (hash160)")
+        return v
+
+
 class ServerConfig(BaseModel):
     enabled: bool = False
     bind_host: str = "127.0.0.1"
@@ -135,6 +165,24 @@ class ServerConfig(BaseModel):
     # Required when binding to a non-loopback address (enforced at startup).
     relay_token: str | None = None
     alerts: AlertConfig = AlertConfig()
+
+
+def _drop_env_overridden(data: dict, prefix: str, delimiter: str = "__") -> None:
+    """Remove keys from YAML-loaded `data` that a LOVECASH_* env var sets
+    (LOVECASH_SERVER__BIND_PORT -> data["server"]["bind_port"]), in place."""
+    for var in os.environ:
+        if not var.startswith(prefix):
+            continue
+        parts = [p.lower() for p in var[len(prefix):].split(delimiter) if p]
+        node = data
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                break
+            node = child
+        else:
+            if parts and isinstance(node, dict):
+                node.pop(parts[-1], None)
 
 
 class Settings(BaseSettings):
@@ -146,10 +194,17 @@ class Settings(BaseSettings):
     server: ServerConfig = ServerConfig()
     rules: list[TipRule] = []
     token_rules: list[TokenRule] = []  # CashToken tips (CHIP-2022-02)
+    goal_show: GoalShowConfig | None = None  # Phase 3 covenant pot
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:
         data = yaml.safe_load(Path(path).read_text()) or {}
+        # pydantic-settings gives init data priority over env vars, so a
+        # plain model_validate(data) would let the FILE beat LOVECASH_*
+        # overrides — the opposite of what docs/self-hosting.md promises
+        # (and of 12-factor/docker expectation). Drop file keys that an
+        # env var sets, then env wins as documented.
+        _drop_env_overridden(data, cls.model_config.get("env_prefix", ""))
         return cls.model_validate(data)
 
     def save_yaml(self, path: str | Path) -> None:

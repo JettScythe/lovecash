@@ -5,14 +5,14 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from pathlib import Path
 
-from lovecash.bch.cashaddr import to_script, token_variant
+from lovecash.bch.cashaddr import to_script, to_scripthash, token_variant
 from lovecash.bch.derive import XpubDeriver
 from lovecash.bch.electrum import ElectrumClient
 from lovecash.bch.pricing import PriceFeed
 from lovecash.bch.state import StateStore, default_state_dir
 from lovecash.bch.tokens import parse_tx
 from lovecash.bch.verify import Outcome, Verifier
-from lovecash.config import BchConfig
+from lovecash.config import BchConfig, GoalShowConfig
 from lovecash.models import TokenReceipt, TokenRule
 from lovecash.triggers.base import EmitFn, TriggerSource
 from lovecash.triggers.events import PaymentTrigger
@@ -23,6 +23,7 @@ log = logging.getLogger("lovecash.source.payment")
 StatusFn = Callable[[ConnectionState], Awaitable[None]]
 AddressFn = Callable[[str, int], Awaitable[None]]
 TipStatusFn = Callable[[str, TipStatus, dict], Awaitable[None]]
+PotBalanceFn = Callable[[int, bool], Awaitable[None]]  # (balance, pot utxo exists)
 
 
 class PaymentSource(TriggerSource):
@@ -36,6 +37,8 @@ class PaymentSource(TriggerSource):
         verifier_factory=None,
         state_path: Path | None = None,
         token_rules: list[TokenRule] | None = None,
+        goal_show: GoalShowConfig | None = None,
+        on_pot_balance: PotBalanceFn | None = None,
     ) -> None:
         self._cfg = cfg
         self._on_status = on_status
@@ -68,6 +71,15 @@ class PaymentSource(TriggerSource):
         self._token_rules: list[TokenRule] = []
         self._require_conf_cats: set[str] = set()
         self.set_token_rules(token_rules or [])
+        # Phase 3 goal-show pot: watch-only balance for the overlay goal
+        # bar. Kept OUT of _sh_to_index so pot txs never enter the tip
+        # pipeline — pledges are not tips.
+        self._goal_show = goal_show
+        self._pot_sh: str | None = (
+            to_scripthash(goal_show.address) if goal_show else None
+        )
+        self._on_pot_balance = on_pot_balance
+        self._claim_attempted: set[str] = set()  # pot outpoints already tried
 
     def set_token_rules(self, token_rules: list[TokenRule]) -> None:
         """Hot-swap token rules (dashboard settings save)."""
@@ -203,6 +215,183 @@ class PaymentSource(TriggerSource):
             self._sh_to_index.setdefault(sh, i)
         for sh in list(self._sh_to_index):
             await client.subscribe_scripthash(sh)
+        if self._pot_sh is not None:
+            await client.subscribe_scripthash(self._pot_sh)
+            await self._report_pot_balance()
+
+    async def _report_pot_balance(self) -> None:
+        client = self._require_client()
+        try:
+            # Fulcrum hides token-bearing UTXOs unless asked — the pot
+            # carries the minting NFT, so a plain get_balance reads 0.
+            bal = await client.call(
+                "blockchain.scripthash.get_balance", self._pot_sh, "include_tokens"
+            )
+        except Exception:
+            bal = await client.call(
+                "blockchain.scripthash.get_balance", self._pot_sh
+            )
+        total = int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
+        log.info("Goal pot balance: %d sats", total)
+        try:
+            pot = await self.pot_utxo()
+        except Exception as exc:
+            # Transient listunspent failure must not hide the show UI or
+            # block balance reporting — assume still active.
+            log.warning("pot utxo lookup failed: %s", exc)
+            pot = None
+            active = True
+        else:
+            active = pot is not None
+        if self._on_pot_balance:
+            await self._on_pot_balance(total, active)
+        await self._maybe_auto_claim(total, pot)
+
+    async def _maybe_auto_claim(
+        self, pot_balance: int, pot: dict | None = None
+    ) -> None:
+        """Goal met -> settle the pot to the performer automatically.
+
+        claim() is permissionless (no signatures, payout locked to the
+        constructor's performerPkh), so the relay can build and broadcast
+        it watch-only. Failures degrade to a log line — the performer can
+        always claim manually from any wallet.
+        """
+        gs = self._goal_show
+        if gs is None or not gs.performer_pkh or pot_balance < gs.goal_sats:
+            return
+        if pot is None:
+            pot = await self.pot_utxo()
+        if pot is None:
+            return
+        outpoint = f"{pot['tx_hash']}:{pot['tx_pos']}"
+        if outpoint in self._claim_attempted:
+            return
+        self._claim_attempted.add(outpoint)
+        try:
+            from lovecash.bch.goalshow import build_claim_tx
+
+            category_raw = bytes.fromhex(pot["token"]["category"])[::-1]
+            hex_tx = build_claim_tx(
+                pot_txid=pot["tx_hash"],
+                pot_vout=int(pot["tx_pos"]),
+                pot_sats=int(pot["value"]),
+                performer_pkh=bytes.fromhex(gs.performer_pkh),
+                goal_sats=gs.goal_sats,
+                deadline=gs.deadline,
+                category_raw=category_raw,
+                pot_address=gs.address,
+            )
+            txid = await self._require_client().call(
+                "blockchain.transaction.broadcast", hex_tx
+            )
+            log.info("Goal met — pot auto-claimed to performer: %s", txid)
+        except Exception as exc:
+            log.warning("auto-claim failed (performer can claim manually): %s", exc)
+
+    async def _listunspent(self, scripthash: str) -> list[dict]:
+        """UTXOs for a scripthash, token data included.
+
+        Prefers the Fulcrum CashToken extension ("include_tokens"); falls
+        back to plain listunspent + our own raw-tx parse on servers
+        without it.
+        """
+        client = self._require_client()
+        try:
+            rows = await client.call(
+                "blockchain.scripthash.listunspent", scripthash, "include_tokens"
+            )
+            extended = True
+        except Exception:
+            rows = await client.call("blockchain.scripthash.listunspent", scripthash)
+            extended = False
+        out = []
+        for row in rows or []:
+            if extended:
+                td = row.get("token_data")
+                token = None
+                if td:
+                    token = {
+                        "category": td["category"],
+                        "amount": int(td.get("amount", 0)),
+                        "nft": td.get("nft"),
+                    }
+                out.append(
+                    {
+                        "tx_hash": row["tx_hash"],
+                        "tx_pos": row["tx_pos"],
+                        "height": row.get("height", 0),
+                        "value": int(row["value"]),
+                        "token": token,
+                    }
+                )
+                continue
+            raw = await client.call("blockchain.transaction.get", row["tx_hash"])
+            outputs = parse_tx(bytes.fromhex(raw))
+            o = outputs[row["tx_pos"]]
+            token = None
+            if o.token is not None:
+                token = {
+                    "category": o.token.category,
+                    "amount": o.token.amount,
+                    "nft": (
+                        {
+                            "capability": o.token.nft_capability,
+                            "commitment": o.token.commitment.hex(),
+                        }
+                        if o.token.nft_capability is not None
+                        else None
+                    ),
+                }
+            out.append(
+                {
+                    "tx_hash": row["tx_hash"],
+                    "tx_pos": row["tx_pos"],
+                    "height": row.get("height", 0),
+                    "value": o.value_sats,
+                    "token": token,
+                }
+            )
+        return out
+
+    async def pot_utxo(self) -> dict | None:
+        """The live pot UTXO (carries the category's minting NFT)."""
+        if self._pot_sh is None:
+            return None
+        for u in await self._listunspent(self._pot_sh):
+            nft = (u["token"] or {}).get("nft") or {}
+            if nft.get("capability") == "minting":
+                return u
+        return None
+
+    async def address_utxos(self, address: str) -> list[dict]:
+        """UTXOs paying any address — used by the /tip pledge flow to
+        fund the viewer side of a covenant transaction."""
+        return await self._listunspent(to_scripthash(address))
+
+    async def pot_balance_live(self) -> int | None:
+        """Fresh pot balance from the server (not the notification cache).
+        None when no goal show is configured or the query fails."""
+        if self._pot_sh is None or self._client is None:
+            return None
+        try:
+            try:
+                bal = await self._client.call(
+                    "blockchain.scripthash.get_balance", self._pot_sh, "include_tokens"
+                )
+            except Exception:
+                bal = await self._client.call(
+                    "blockchain.scripthash.get_balance", self._pot_sh
+                )
+            return int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
+        except Exception as exc:
+            log.warning("live pot balance failed: %s", exc)
+            return None
+
+    async def current_height(self) -> int:
+        client = self._require_client()
+        hdr = await client.call("blockchain.headers.subscribe")
+        return int(hdr.get("height", 0))
 
     async def _extend_window(self) -> None:
         client = self._require_client()
@@ -267,19 +456,24 @@ class PaymentSource(TriggerSource):
             await self._on_address(self.current_tip_address(), self._next_index)
         try:
             while not self._stopped:
-                notif = await client.next_notification()
-                # A scripthash notification carries the scripthash that
-                # changed — scan just it. Anything unrecognized falls
-                # back to a full scan.
-                params = notif.get("params") or []
-                sh = params[0] if params and isinstance(params[0], str) else None
-                if sh is not None and sh in self._sh_to_index:
-                    await self._scan_one(sh, emit)
-                else:
-                    await self._scan_all(emit)
+                await self._handle_notification(await client.next_notification(), emit)
         finally:
             await client.close()
         return True
+
+    async def _handle_notification(self, notif: dict, emit) -> None:
+        # A scripthash notification carries the scripthash that
+        # changed — scan just it. Anything unrecognized falls
+        # back to a full scan. The goal-show pot only gets a balance
+        # refresh: pledges are not tips and never enter the pipeline.
+        params = notif.get("params") or []
+        sh = params[0] if params and isinstance(params[0], str) else None
+        if sh is not None and sh == self._pot_sh:
+            await self._report_pot_balance()
+        elif sh is not None and sh in self._sh_to_index:
+            await self._scan_one(sh, emit)
+        else:
+            await self._scan_all(emit)
 
     async def _replay_or_seed(self, emit) -> None:
         """First session only: reconcile tips that arrived while offline.
