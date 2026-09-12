@@ -272,8 +272,8 @@ window.LovecashPledge = {
 
     pledgeBtn.addEventListener('click', async () => {
       const amount = parseInt(amountInput.value, 10);
-      if (!Number.isFinite(amount) || amount < 546) {
-        sayResult('enter at least 546 sats');
+      if (!Number.isFinite(amount) || amount < 5000) {
+        sayResult('enter at least 5000 sats (the covenant minimum)');
         return;
       }
       pledgeBtn.disabled = true;

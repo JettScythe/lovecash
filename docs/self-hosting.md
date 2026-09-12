@@ -68,6 +68,11 @@ clipboard copy need a secure context. A tunnel (Tailscale Funnel,
 Cloudflare Tunnel) in front of the loopback relay works too, no domain or
 router changes needed.
 
+Rate-limit `/api/utxos` and `/api/goal_pot` at the proxy on a public
+relay: each request fans out to Electrum, and on servers without the
+Fulcrum `include_tokens` extension one `/api/utxos` call fetches every
+UTXO's full raw transaction — an amplification vector if left open.
+
 ## Environment variable overrides
 
 Any config value can be overridden by an environment variable, useful in

@@ -1,6 +1,9 @@
 # Covenant Goal Shows — Design (Phase 3)
 
-Status: **design only — no code.** All-or-nothing tip goals enforced by a
+Status: **shipped (v1), chipnet-verified 2026-09-11** (three shows:
+watcher auto-claim, manual claim, refund + node-rejected below-goal
+claim — see contracts/chipnet_shows.mjs and the session logs).
+All-or-nothing tip goals enforced by a
 BCH covenant instead of by trust: if the goal is met by the deadline, the
 performer can claim the pot; if not, every pledger can claim their own
 refund. lovecash's role stays watch-only: display progress, trigger toys.
@@ -76,6 +79,28 @@ The covenant enforces abandonment protection, not honesty about demand:
   tx-fee per block. Parallel per-pledge UTXOs are the documented upgrade
   path if contention ever matters.
 
+## Limitations (v1 accepted cons)
+
+- **Refunds need a CashToken-aware, WizardConnect-capable wallet**
+  (Cashonize v0.9+ today). A pledger who paid from another wallet still
+  owns their receipt NFT, but needs compatible tooling to refund it.
+- **Pledges are linkable.** The receipt NFT sits at the pledger's address
+  with the amount committed in cleartext — per-address pledge amounts are
+  public on-chain. Unavoidable in this design.
+- **Claim fee is a hardcoded 1000 sats** (~500 is typical at 1 sat/byte)
+  — a small overpay to miners per settlement; the covenant only caps it.
+- **Auto-claim bookkeeping is in-memory.** A transient broadcast failure
+  stalls auto-claim for that pot outpoint until the next pot notification
+  or a relay restart. Manual claim always works, and the dashboard
+  goal-show card shows a stuck full pot.
+- **Min pledge 5000 sats is margin, not math.** The refundability floor
+  is ~750 sats: payout = amount + 800 (receipt dust) − refund-tx fee
+  (~722–756 bytes ≈ 750 sats) must clear the 546-sat dust limit → 496
+  sats at realistic fees, 746 under the covenant's 1000-sat fee cap.
+  5000 keeps ~6.7× worst-case margin (~1¢ at $230/BCH) so every receipt
+  stays comfortably worth refunding; it is hardcoded in the covenant, so
+  lowering it means recompile + redeploy.
+
 ## Hard problems (flagged honestly)
 
 1. **Refund UX.** Solved for v1: the `/tip` page lists the viewer's
@@ -114,33 +139,20 @@ The covenant enforces abandonment protection, not honesty about demand:
   touching a wallet; on any failure they can still claim manually.
 - On settlement: the performer's normal tip watcher sees the payout as
   an ordinary confirmed payment — existing pipeline, unchanged.
-- **Open:** the `/tip` page pledge mode: builds the covenant transaction
-  client-side (viewer's wallet signs) instead of a plain BIP21 QR.
-  Done so far: the `/tip` page shows the live pot progress bar, pot
-  address, and the refund promise; wallet pledging itself is blocked on
-  the transport decision below.
+- **Done:** the `/tip` page pledge mode builds the covenant transaction
+  client-side (viewer's wallet signs via WizardConnect) and lists the
+  viewer's receipt NFTs with one-tap refunds when the window opens.
 
-## Wallet transport (decision record, 2026-09-10)
+## Wallet transport (decision record, 2026-09-10; shipped 2026-09-11)
 
-Viewer pledging needs the browser to build a covenant tx and a wallet to
-sign it. Surveyed options:
+**Decision: WizardConnect** (Nostr NIP-17 relay, no cloud project id) as
+implemented by Cashonize v0.9+ — see `contracts/web/pledge_ui.js`. The
+pledge and refund transactions are built client-side; the wallet signs
+only the funder/receipt P2PKH inputs, the covenant input ships complete.
 
-- **CashConnect** (`cashconnect` npm, v0.0.25): WalletConnect v2 with
-  CashRPC methods, Cashonize reference integration. Problems: the
-  dapp-integration API is undocumented ("TODO" in its own readme), it
-  needs a WalletConnect Cloud project ID (centralized relay), and
-  adoption is early. Building the viewer flow on it now is building on
-  mud.
-- **Raw-tx handoff**: no common wallet imports unsigned covenant txs
-  with dapp-chosen inputs; the builder needs the viewer's UTXOs, which
-  no read-only channel provides. Dead end without wallet comms.
-
-**Decision:** defer signing integration until a concrete wallet target
-(Paytaca vs Cashonize) is confirmed by performer demand. The pledge-tx
-builder (cashscript `TransactionBuilder`, proven on chipnet in
-`contracts/chipnet_e2e.mjs`) is the reusable core either way — the
-transport is a thin layer over it. When picked, CashConnect is the
-default candidate; re-verify its dapp-side API maturity first.
+Rejected alternatives: CashConnect (undocumented dapp API, requires a
+centralized WalletConnect Cloud project id) and raw-tx handoff (no
+read-only channel provides the viewer's UTXOs).
 
 ## Dependencies to evaluate at implementation time
 

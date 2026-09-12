@@ -99,7 +99,7 @@ export const mapUtxo = (u) => ({
  * @param {object} o.potUtxo - API-shaped pot UTXO (must carry the minting NFT)
  * @param {Array}  o.funderUtxos - API-shaped UTXOs of the funder address
  * @param {string} o.funderAddress - viewer cashaddr (P2PKH; token-aware ok)
- * @param {bigint|number} o.amountSats - pledge amount (>= 546)
+ * @param {bigint|number} o.amountSats - pledge amount (>= 5000, the covenant minimum)
  * @param {bigint|number} [o.feeSats=1000]
  * @param {object} [o.provider] - testing only: real provider instead of the dummy
  * @param {object} [o.funderUnlocker] - testing only: real unlocker instead of placeholder
@@ -122,7 +122,7 @@ export async function buildPledgeTx({
 }) {
   const amount = BigInt(amountSats);
   const fee = BigInt(feeSats);
-  if (amount < 546n) throw new Error('pledge below dust (min 546 sats)');
+  if (amount < 5000n) throw new Error('pledge below the covenant minimum (5000 sats)');
   if (!Number.isSafeInteger(Number(deadline)) || BigInt(deadline) < 1n) {
     throw new Error('deadline must be >= 1 (pledge txs carry locktime 0)');
   }

@@ -380,7 +380,6 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "deadline": gs.deadline,
             "performer_pkh": gs.performer_pkh,
             "balance_sats": live if live is not None else orchestrator.pot_balance,
-            "wc_chain": gs.resolved_wc_chain,
             "current_height": await orchestrator.current_height(),
             "utxo": await orchestrator.pot_utxo(),
         }
@@ -397,6 +396,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
 
     _BCMR = "https://bcmr.paytaca.com/api/tokens/{}/"
     _meta_cache: dict[str, dict[str, Any]] = {}
+    _META_CACHE_MAX = 512  # bounded: keys are attacker-chosen 64-hex strings
 
     @app.get("/api/token_meta")
     async def api_token_meta(
@@ -423,6 +423,8 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                     }
             except Exception:
                 meta = {"ok": False}
+            if len(_meta_cache) >= _META_CACHE_MAX:
+                _meta_cache.pop(next(iter(_meta_cache)))  # FIFO eviction
             _meta_cache[category] = meta
         return _meta_cache[category]
 

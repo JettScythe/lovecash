@@ -113,8 +113,8 @@ test('web builder: rejects below-dust pledge', async () => {
   const { provider, pot, funder, funding, params } = setup();
   await assert.rejects(() => buildPledgeTx({
     artifact, contractParams: params, potUtxo: apiShape(pot), funderUtxos: [apiShape(funding)],
-    funderAddress: mockAddr(funder.pkh), amountSats: 100n, provider,
-  }), /below dust/);
+    funderAddress: mockAddr(funder.pkh), amountSats: 4999n, provider,
+  }), /covenant minimum/);
 });
 
 test('web builder: rejects when no single UTXO covers the pledge', async () => {

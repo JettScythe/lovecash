@@ -1,3 +1,4 @@
+import os
 import re
 from enum import StrEnum
 from pathlib import Path
@@ -146,10 +147,6 @@ class GoalShowConfig(BaseModel):
     goal_sats: int = Field(ge=MIN_GOAL_SATS)
     deadline: int = Field(ge=0)  # covenant deadline (block height/time)
     performer_pkh: str = ""  # 40-hex hash160 — enables auto-claim + client-side covenant rebuild
-    # WalletConnect chain id for pairing. Default derived from the pot
-    # address prefix; override for chipnet (wallets disagree on whether
-    # chipnet is its own chain id or shares bchtest — verify on pairing).
-    wc_chain: str | None = None
 
     @field_validator("performer_pkh")
     @classmethod
@@ -158,13 +155,6 @@ class GoalShowConfig(BaseModel):
         if v and not re.fullmatch(r"[0-9a-f]{40}", v):
             raise ValueError("performer_pkh must be 40 hex chars (hash160)")
         return v
-
-    @property
-    def resolved_wc_chain(self) -> str:
-        if self.wc_chain:
-            return self.wc_chain
-        prefix = self.address.split(":", 1)[0].lower()
-        return "bch:bitcoincash" if prefix == "bitcoincash" else "bch:bchtest"
 
 
 class ServerConfig(BaseModel):
@@ -175,6 +165,24 @@ class ServerConfig(BaseModel):
     # Required when binding to a non-loopback address (enforced at startup).
     relay_token: str | None = None
     alerts: AlertConfig = AlertConfig()
+
+
+def _drop_env_overridden(data: dict, prefix: str, delimiter: str = "__") -> None:
+    """Remove keys from YAML-loaded `data` that a LOVECASH_* env var sets
+    (LOVECASH_SERVER__BIND_PORT -> data["server"]["bind_port"]), in place."""
+    for var in os.environ:
+        if not var.startswith(prefix):
+            continue
+        parts = [p.lower() for p in var[len(prefix):].split(delimiter) if p]
+        node = data
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                break
+            node = child
+        else:
+            if parts and isinstance(node, dict):
+                node.pop(parts[-1], None)
 
 
 class Settings(BaseSettings):
@@ -191,6 +199,12 @@ class Settings(BaseSettings):
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:
         data = yaml.safe_load(Path(path).read_text()) or {}
+        # pydantic-settings gives init data priority over env vars, so a
+        # plain model_validate(data) would let the FILE beat LOVECASH_*
+        # overrides — the opposite of what docs/self-hosting.md promises
+        # (and of 12-factor/docker expectation). Drop file keys that an
+        # env var sets, then env wins as documented.
+        _drop_env_overridden(data, cls.model_config.get("env_prefix", ""))
         return cls.model_validate(data)
 
     def save_yaml(self, path: str | Path) -> None:
