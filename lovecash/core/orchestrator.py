@@ -3,7 +3,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
-from lovecash.config import Settings
+from lovecash.config import GoalShowConfig, Settings
 from lovecash.core.router import ToyRouter
 from lovecash.engine.rules import RulesEngine
 from lovecash.safety import SafetyState
@@ -112,6 +112,18 @@ class Orchestrator:
 
     async def pot_balance_live(self) -> int | None:
         return await self._payment_source.pot_balance_live()
+
+    async def raw_transaction(self, txid: str) -> str | None:
+        return await self._payment_source.raw_transaction(txid)
+
+    async def broadcast_tx(self, tx_hex: str) -> str:
+        return await self._payment_source.broadcast_tx(tx_hex)
+
+    async def network(self) -> str:
+        return await self._payment_source.network()
+
+    async def attach_goal_show(self, goal_show: GoalShowConfig) -> None:
+        await self._payment_source.attach_goal_show(goal_show)
 
     async def _broadcast_status(self, state: ConnectionState) -> None:
         self.connection_state = state

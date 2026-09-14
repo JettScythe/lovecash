@@ -12,10 +12,10 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from fastapi.websockets import WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lovecash.bch.payment import build_uri, qr_png, qr_svg
-from lovecash.config import AlertConfig, Limits, Settings
+from lovecash.config import AlertConfig, GoalShowConfig, Limits, Settings
 from lovecash.core.orchestrator import Orchestrator
 from lovecash.models import TipRule, TokenRule
 from lovecash.server.relay import RelayHub
@@ -37,6 +37,25 @@ class SettingsUpdate(BaseModel):
     rules: list[TipRule] | None = None
     token_rules: list[TokenRule] | None = None
     alerts: AlertConfig | None = None
+
+
+class BroadcastBody(BaseModel):
+    """A wallet-signed raw tx for the relay to sanity-check and broadcast."""
+
+    tx_hex: str = Field(min_length=20)
+
+
+class GoalShowDeploy(BaseModel):
+    """Performer-deployed goal show registration (wallet-signed genesis).
+
+    The server re-verifies the genesis tx on-chain before trusting any of
+    these client-provided parameters — see verify_genesis_tx."""
+
+    genesis_txid: str = Field(pattern="^[0-9a-f]{64}$")
+    goal_sats: int
+    deadline: int
+    performer_pkh: str
+    address: str  # covenant token address derived client-side
 
 
 def _apply_in_place(model: BaseModel, new: BaseModel) -> None:
@@ -240,6 +259,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "ok": True,
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
+            "network": await orchestrator.network(),
             "address": orchestrator.current_tip_address(),
             "token_menu": _token_menu(settings),
             "goal_pot": (
@@ -494,6 +514,108 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             )
             await hub.broadcast({"type": "alerts", "data": alerts.model_dump()})
         return {"ok": True, "applied": applied, "persisted": persisted}
+
+    @app.get("/api/height")
+    async def api_height() -> dict:
+        """Current block height — the deploy form's deadline hint."""
+        return {"height": await orchestrator.current_height()}
+
+    @app.post("/api/broadcast", dependencies=[Depends(auth)])
+    async def api_broadcast(body: BroadcastBody) -> dict:
+        """Broadcast a wallet-signed tx for the deploy flow. Sanity-checks
+        token categories against the genesis rule first: a wallet that
+        re-serializes a token prefix wrongly (flipped category bytes) gets
+        a precise 400 HERE, with the bytes logged — not an opaque node
+        rejection after the fact."""
+        from lovecash.bch.tokens import TokenParseError, parse_tx, tx_input0_outpoint
+
+        try:
+            raw = bytes.fromhex(body.tx_hex)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="tx_hex is not hex") from exc
+        try:
+            outputs = parse_tx(raw)
+            genesis_category, genesis_vout = tx_input0_outpoint(raw)
+        except TokenParseError as exc:
+            raise HTTPException(status_code=400, detail=f"tx does not parse: {exc}") from exc
+        for out in outputs:
+            if out.token is not None and (
+                out.token.category != genesis_category or genesis_vout != 0
+            ):
+                log.warning(
+                    "broadcast refused: token category %s vs genesis %s (vout %d); tx=%s",
+                    out.token.category, genesis_category, genesis_vout, body.tx_hex,
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"token category {out.token.category[:16]}… is not a valid genesis "
+                        f"of input 0 ({genesis_category[:16]}…, vout {genesis_vout}) — "
+                        "a token genesis must spend output index 0 of its parent; "
+                        "self-send in your wallet first"
+                    ),
+                )
+        try:
+            txid = await orchestrator.broadcast_tx(body.tx_hex)
+        except Exception as exc:
+            log.warning("node rejected broadcast: %s; tx=%s", exc, body.tx_hex)
+            raise HTTPException(status_code=502, detail=f"node rejected: {exc}") from exc
+        return {"ok": True, "txid": txid}
+
+    @app.post("/api/goal_show", dependencies=[Depends(auth)])
+    async def deploy_goal_show(body: GoalShowDeploy) -> dict:
+        """Register a freshly deployed goal show. The server re-verifies
+        the genesis tx itself (exactly one minting NFT, straight into the
+        covenant bound to these parameters) — client claims are never
+        trusted. On success the pot is watched immediately (no restart)."""
+        from lovecash.bch.goalshow import verify_genesis_tx
+
+        try:
+            gs = GoalShowConfig(
+                address=body.address,
+                goal_sats=body.goal_sats,
+                deadline=body.deadline,
+                performer_pkh=body.performer_pkh,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raw = await orchestrator.raw_transaction(body.genesis_txid)
+        if raw is None:
+            raise HTTPException(
+                status_code=404,
+                detail="genesis tx not visible to the relay yet — retry in a few seconds",
+            )
+        try:
+            info = verify_genesis_tx(
+                raw,
+                bytes.fromhex(gs.performer_pkh),
+                gs.goal_sats,
+                gs.deadline,
+                gs.address,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"genesis verification failed: {exc}"
+            ) from exc
+        settings.goal_show = gs
+        persisted = False
+        if config_path is not None:
+            settings.save_yaml(config_path)
+            persisted = True
+        try:
+            await orchestrator.attach_goal_show(gs)
+            attached = True
+        except Exception as exc:
+            log.warning("goal-show attach failed (restart to watch the pot): %s", exc)
+            attached = False
+        return {
+            "ok": True,
+            "category": info["category"],
+            "seed_sats": info["seed_sats"],
+            "persisted": persisted,
+            "watching": attached,
+            "needs_restart": not attached,
+        }
 
     @app.websocket("/overlay-ws")
     async def overlay_ws(ws: WebSocket) -> None:
