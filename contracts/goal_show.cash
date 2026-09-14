@@ -45,6 +45,11 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
   // commitment only ever needed hash160(key), so wallets never touch a
   // covenant-input pubkey placeholder — the funding input is plain P2PKH.
   function pledge(bytes20 pledgerPkh) {
+    // activeInputIndex is evaluated PER INPUT: a second covenant UTXO
+    // smuggled in at another index fails its own evaluation of this same
+    // guard, so the fixed-index thread cannot be escaped by pairing two
+    // covenant inputs. (Regression-tested; the first draft was exploited
+    // exactly this way.)
     require(this.activeInputIndex == 0, "pot must be input 0");
     require(tx.inputs.length == 2, "pledge: pot + one funding input");
     // ponytail: BCH consensus enforces time *lower* bounds only (CLTV), so
@@ -55,7 +60,12 @@ contract GoalShow(bytes20 performerPkh, int goalSats, int deadline, bytes32 cate
     // docs/covenant-goal-shows.md, "Trust assumptions".
     require(tx.locktime < deadline, "pledge: past deadline");
 
-    // Pot (input 0) must carry this show's minting NFT.
+    // Pot (input 0) must carry this show's minting NFT. Not redundant
+    // with the output[0]==input[0] checks below: those only continue
+    // WHATEVER thread the input is on. These constant checks pin the
+    // thread's identity — a foreign NFT sent to the covenant address
+    // (decoy or accidental) can never become "the pot", so refunds can't
+    // be paid out of parallel threads while the real pot stays whole.
     bytes potCategory = tx.inputs[0].tokenCategory;
     require(potCategory.length == 33, "pot must carry an NFT");
     require(potCategory.split(32)[1] == 0x02, "pot NFT must be minting");
