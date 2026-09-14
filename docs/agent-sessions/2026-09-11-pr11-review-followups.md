@@ -64,3 +64,18 @@ Build: pass (bundle rebuilt)
   genesis tx). The dashboard card shows status + docs pointer only.
 - Docs cons added; remaining review follow-ups open: bundle-staleness CI
   check.
+
+## Addendum 2026-09-13 — real-wallet gate: PASSED
+
+Cashonize (chipnet) ↔ /tip page ↔ current contract, both directions:
+
+- Pledge 5,000 sats: tx 1585fea0d80792776f9ecc5a5ad81f369c681651581753250abab6175af931fa
+  (pot 5k→10k with minting NFT, 800-sat receipt NFT, change returned).
+- Refund via one-tap receipt button: tx c6a3e80aeadf6d44be6177f57d538f3001684b37e2c5302c74680db957ab78cc
+  (pot 10k→5k, payout 4,800 = 5,000 + 800 dust − 1,000 fee — exact per
+  refund_tx.mjs; receipt burned).
+
+This was the last open gate from the merge assessment: the browser →
+WizardConnect → wallet → broadcast loop had not been re-run since
+`refund(sig, pubkey)` became `refund()`. Both signature shapes accepted
+by a real wallet and real chipnet consensus.
