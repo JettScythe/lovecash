@@ -169,6 +169,12 @@ window.LovecashDeploy = {
         sayResult('deadline must be a future block height');
         return;
       }
+      // Extra-zero guard: mirror the goal back with a USD estimate before
+      // the wallet ever opens — the seed is locked until the goal is met.
+      const usd = status.price_usd ? ` ≈ $${(goal / 1e8 * status.price_usd).toFixed(2)}` : '';
+      if (!confirm(`Create goal show?\n\nGoal: ${goal.toLocaleString()} sats${usd}\nDeadline: block ${deadline}\nSeed: ${POT_SEED} sats (locked until the goal is met)`)) {
+        return;
+      }
       createBtn.disabled = true;
       try {
         sayResult('fetching wallet UTXOs…');
