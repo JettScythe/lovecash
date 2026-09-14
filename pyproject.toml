@@ -14,6 +14,7 @@ dependencies = [
   "segno>=1.6",             # pure-python QR, native PNG/SVG, no PIL
   "hdwallet>=2.2,<3",
   "gp-oracle",
+  "cashscript-py>=1.0.3",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,7 @@ packages = ["lovecash"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "lovecash/config.template.yaml" = "lovecash/config.template.yaml"
+"lovecash/bch/goal_show.json" = "lovecash/bch/goal_show.json"
 
 [tool.uv]
 package = true
