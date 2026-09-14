@@ -80,6 +80,7 @@ class PaymentSource(TriggerSource):
         )
         self._on_pot_balance = on_pot_balance
         self._claim_attempted: set[str] = set()  # pot outpoints already tried
+        self._network_cache: str | None = None
 
     def set_token_rules(self, token_rules: list[TokenRule]) -> None:
         """Hot-swap token rules (dashboard settings save)."""
@@ -393,6 +394,22 @@ class PaymentSource(TriggerSource):
         hdr = await client.call("blockchain.headers.subscribe")
         return int(hdr.get("height", 0))
 
+    _MAINNET_GENESIS = "000000000000000000651ef99cb9fcbe0dadde1d424bd9f15ff20136191a5eec"
+
+    async def network(self) -> str:
+        """'mainnet' or 'chipnet' (testnet family), from the connected
+        server's genesis hash. Cached — it can't change mid-connection."""
+        if self._network_cache is None:
+            try:
+                features = await self._require_client().call("server.features")
+                genesis = (features or {}).get("genesis_hash", "")
+                self._network_cache = (
+                    "mainnet" if genesis == self._MAINNET_GENESIS else "chipnet"
+                )
+            except Exception:
+                return "unknown"
+        return self._network_cache
+
     async def raw_transaction(self, txid: str) -> str | None:
         """Raw hex for a txid (None when not yet visible). Used by the
         goal-show deploy endpoint to verify a genesis tx."""
@@ -403,6 +420,12 @@ class PaymentSource(TriggerSource):
         except Exception:
             return None  # not seen yet (mempool relay lag) — caller retries
         return raw if isinstance(raw, str) else None
+
+    async def broadcast_tx(self, tx_hex: str) -> str:
+        """Broadcast a raw tx; raises with the node's verbatim rejection."""
+        return await self._require_client().call(
+            "blockchain.transaction.broadcast", tx_hex
+        )
 
     async def attach_goal_show(self, goal_show: GoalShowConfig) -> None:
         """Watch a new goal-show pot mid-run — deploy without a restart.

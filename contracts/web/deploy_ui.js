@@ -11,7 +11,6 @@ import { initiateDappRelay } from '@wizardconnect/core';
 import { DappConnectionManager, loadSession } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
 import { buildDeployTx } from './deploy_tx.mjs';
-import { decodeAnyAddr } from './pledge_tx.mjs';
 import artifact from '../goal_show.json';
 
 function el(tag, className, text) {
@@ -44,7 +43,9 @@ window.LovecashDeploy = {
       mountEl.appendChild(el('p', 'hint', 'A goal show is already configured. One show at a time — remove goal_show from config.yaml and restart to replace it.'));
       return;
     }
-    const netPrefix = decodeAnyAddr(status.address).prefix;
+    // The relay tells us its chain (server.features genesis hash) — the tip
+    // address is always mainnet-prefixed and must NOT be used for this.
+    const netPrefix = status.network === 'mainnet' ? 'bitcoincash' : 'bchtest';
 
     let currentHeight = 0;
     try {
@@ -79,19 +80,29 @@ window.LovecashDeploy = {
     connectBtn.type = 'button';
     const createBtn = el('button', 'btn-primary hidden', 'Create goal show (5000 sat seed)');
     createBtn.type = 'button';
+    const forgetBtn = el('button', 'btn-primary hidden', 'Forget this wallet');
+    forgetBtn.type = 'button';
+    forgetBtn.style.background = 'none';
+    forgetBtn.style.boxShadow = 'none';
+    forgetBtn.style.opacity = '0.6';
+    forgetBtn.style.fontSize = '13px';
     const qrWrap = el('div', 'qr-wrap hidden');
     const qrImg = el('img');
     qrImg.alt = 'WizardConnect pairing QR code';
     qrImg.width = 272;
     qrImg.height = 272;
     qrWrap.appendChild(qrImg);
+    const uriLink = el('a', 'uri-link hidden', '');
+    uriLink.href = '#';
+    const copyBtn = el('button', 'btn-primary hidden', 'Copy pairing link');
+    copyBtn.type = 'button';
     const statusLine = el('p', 'hint', '');
     statusLine.style.textAlign = 'left';
     const result = el('p', 'hint', '');
     result.style.textAlign = 'left';
     result.style.wordBreak = 'break-all';
 
-    for (const node of [goalInput, deadlineInput, connectBtn, qrWrap, createBtn, statusLine, result]) {
+    for (const node of [goalInput, deadlineInput, connectBtn, qrWrap, uriLink, copyBtn, createBtn, forgetBtn, statusLine, result]) {
       mountEl.appendChild(node);
     }
 
@@ -107,8 +118,11 @@ window.LovecashDeploy = {
         if (!pub) throw new Error('wallet sent no receive-path xpub');
         performerAddress = unwrapAddr(encodeCashAddress({ prefix: netPrefix, type: CashAddressType.p2pkh, payload: hash160(pub) }));
         qrWrap.classList.add('hidden');
+        uriLink.classList.add('hidden');
+        copyBtn.classList.add('hidden');
         connectBtn.classList.add('hidden');
         createBtn.classList.remove('hidden');
+        forgetBtn.classList.remove('hidden');
         say('connected: ' + performerAddress);
       } catch (e) {
         say('wallet handshake failed: ' + (e && e.message ? e.message : String(e)));
@@ -124,11 +138,18 @@ window.LovecashDeploy = {
         dappMgr.attachRelay(relay);
         qrImg.src = '/qr-data.png?data=' + encodeURIComponent(relay.qrUri || relay.uri);
         qrWrap.classList.remove('hidden');
-        say('scan the QR with Cashonize');
+        uriLink.textContent = relay.uri; // raw wiz:// form: Cashonize web needs paste, not scan
+        uriLink.classList.remove('hidden');
+        copyBtn.classList.remove('hidden');
+        copyBtn.onclick = () => {
+          if (navigator.clipboard) navigator.clipboard.writeText(relay.uri).then(() => { copyBtn.textContent = 'Copied!'; }, () => {});
+        };
+        say('scan the QR with Cashonize, or paste the link into it');
         dappMgr.on('walletready', onWalletReady);
         dappMgr.on('disconnect', (reason, msg) => {
           say('wallet disconnected' + (msg ? ': ' + msg : ''));
           createBtn.classList.add('hidden');
+          forgetBtn.classList.add('hidden');
         });
       } catch (e) {
         say('pairing failed: ' + (e && e.message ? e.message : String(e)));
@@ -163,13 +184,26 @@ window.LovecashDeploy = {
           userPrompt: `Create goal show: ${goal} sats by block ${deadline}`,
         });
         sayResult('check your wallet to approve…');
+        console.log('[lovecash deploy] unsigned tx hex:', request.transaction.transaction);
         const response = await dappMgr.signTransaction(request);
+        console.log('[lovecash deploy] wallet response:', JSON.stringify(response));
         if (response.error) throw new Error(response.error);
-        const txid = txidOfHex(response.signedTransaction);
+        const signedHex = response.signedTransaction;
+        if (!signedHex) throw new Error('wallet returned no signed transaction');
+        const txid = txidOfHex(signedHex);
 
-        // The wallet just broadcast; the relay's Electrum may lag a beat.
+        // The RELAY broadcasts: it sanity-checks the token category first
+        // (a wallet-side re-serialization bug gets a precise error here,
+        // bytes logged server-side — not an opaque node rejection).
         const token = localStorage.getItem('lovecash_relay_token') || '';
         const headers = { 'Content-Type': 'application/json', ...(token && { 'X-Relay-Token': token }) };
+        sayResult('broadcasting via the relay…');
+        const bc = await fetch('/api/broadcast', { method: 'POST', headers, body: JSON.stringify({ tx_hex: signedHex }) });
+        const bcBody = await bc.json();
+        if (!bc.ok) throw new Error(bcBody.detail || 'broadcast failed');
+        console.log('[lovecash deploy] broadcast txid:', bcBody.txid);
+
+        // The relay's Electrum may lag a beat before it sees the genesis.
         const payload = {
           genesis_txid: txid,
           goal_sats: goal,
@@ -201,6 +235,22 @@ window.LovecashDeploy = {
         sayResult('deploy failed: ' + (e && e.message ? e.message : String(e)));
         createBtn.disabled = false;
       }
+    });
+
+    // Forget: clear the stored session so the next visit re-pairs.
+    forgetBtn.addEventListener('click', async () => {
+      try {
+        if (dappMgr) {
+          dappMgr.clearStoredSession();
+          await dappMgr.sendDisconnect('performer left');
+        }
+      } catch { /* wallet already gone */ }
+      dappMgr = null;
+      performerAddress = null;
+      createBtn.classList.add('hidden');
+      forgetBtn.classList.add('hidden');
+      connectBtn.classList.remove('hidden');
+      say('wallet forgotten — connect again to deploy');
     });
 
     // Silent reconnect (same stored session as the viewer pledge flow).

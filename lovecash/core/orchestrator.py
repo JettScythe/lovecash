@@ -116,6 +116,12 @@ class Orchestrator:
     async def raw_transaction(self, txid: str) -> str | None:
         return await self._payment_source.raw_transaction(txid)
 
+    async def broadcast_tx(self, tx_hex: str) -> str:
+        return await self._payment_source.broadcast_tx(tx_hex)
+
+    async def network(self) -> str:
+        return await self._payment_source.network()
+
     async def attach_goal_show(self, goal_show: GoalShowConfig) -> None:
         await self._payment_source.attach_goal_show(goal_show)
 

@@ -39,9 +39,14 @@ fee-fix commit): 16 files, +1001/−59. Headlines:
 
 ### Outcome
 
-- Tests: pass (176 Python, 43 JS)
+- Tests: pass (177 Python, 44 JS)
 - Lint: pass
 - Build: pass (mypy clean; esbuild bundle rebuilt and checked in)
+- **Chipnet e2e: PASSED.** Scripted: deploy_tx genesis broadcast accepted,
+  relay verify+persist+hot-attach OK, pledge over goal → auto-claim with
+  exact fee (495 bytes / 495 sats to performer P2PKH). Manual (real
+  Cashonize, WizardConnect): pairing, signing prompt, and deploy PASSED
+  after the fixes below (goal 1M sats, pot live, watching).
 
 ### Notes
 
@@ -63,9 +68,24 @@ fee-fix commit): 16 files, +1001/−59. Headlines:
   wallet adds exactly 100 bytes (66 sig push + 34 pubkey push). cashscript's
   build() refuses fee/byte < 1, so the sizing dry run carries the 1000-sat
   ceiling.
-- **Not e2e-tested with a real wallet**: the deploy WizardConnect pairing
-  carries the same caveat as the pledge flow — run the dashboard flow on
-  chipnet with real Cashonize before mainnet shows.
+- **Found in e2e (real bugs, all fixed):**
+  1. `deploy_tx.mjs` dropped the `vout === 0` parent filter — CHIP-2022-02
+     allows token genesis only from outpoint index 0; the node rejected the
+     wallet tx with `bad-txns-token-invalid-category`. Scripted test had
+     passed by luck (faucet UTXO at vout 0). Now enforced in the JS builder,
+     `verify_genesis_tx`, and the `/api/broadcast` pre-flight check.
+  2. Deploy UI derived the address prefix from the tip address (always
+     mainnet) → mislabeled chipnet as `bitcoincash:`. Relay now detects the
+     chain from `server.features` genesis hash (`GET /api/status.network`).
+  3. Deploy UI lacked the pledge flow's "Forget this wallet" escape hatch
+     for stale WizardConnect sessions, and the pairing-link paste option
+     (macOS Cashonize web needs paste, not QR).
+  4. Deploy flow is now `broadcast:false`: wallet signs, the RELAY
+     broadcasts (`POST /api/broadcast`, with a token-category pre-flight
+     check) — wallet-broadcast raced genesis registration and hid the
+     signed bytes when the node rejected.
 - Follow-ups: real-fee treatment for the JS refund builder (still flat
   1000); multi-show concurrency (one show at a time enforced in the UI);
-  remove-goal-show flow (currently: edit config.yaml + restart).
+  remove-goal-show flow (currently: edit config.yaml + restart);
+  WizardConnect relay churns on page-hide (response delivery survives via
+  re-subscribe, but the UX blips).

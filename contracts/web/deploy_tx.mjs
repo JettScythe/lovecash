@@ -62,15 +62,19 @@ export async function buildDeployTx({
   const funder = decodeAddr(funderAddress);
   const performerPkh = funder.payload;
 
-  // The genesis parent MUST be input 0 (category = its outpoint txid), so
-  // exactly one funding input: smallest tokenless UTXO that covers the
+  // The genesis parent MUST be input 0 spending output index 0 (CHIP-2022-02:
+  // only "token genesis inputs" — outpoint index 0 — can create a category).
+  // Exactly one funding input: smallest vout-0 tokenless UTXO covering the
   // worst-case total. The real fee is measured after the first build.
   const need = seed + FEE_CEILING + CHANGE_DUST;
   const parent = funderUtxos
-    .filter((u) => !u.token && BigInt(u.value) >= need)
+    .filter((u) => !u.token && u.tx_pos === 0 && BigInt(u.value) >= need)
     .sort((a, b) => Number(BigInt(a.value) - BigInt(b.value)))[0];
   if (!parent) {
-    throw new Error(`no single tokenless UTXO covers seed+fee+dust (${need} sats) — consolidate in your wallet first`);
+    throw new Error(
+      `genesis needs a tokenless UTXO at output index 0 covering ${need} sats — ` +
+      'send coins to your own address in your wallet (self-send), then retry'
+    );
   }
   const category = parent.tx_hash; // display hex, as Electrum reports it
 
@@ -105,13 +109,17 @@ export async function buildDeployTx({
   }
   const builder = assemble(fee);
 
-  const wc = builder.generateWcTransactionObject({ broadcast: true, userPrompt });
+  // broadcast:false — the wallet signs and hands the tx BACK to us; the
+  // relay broadcasts (POST /api/broadcast), which sanity-checks the token
+  // category first and keeps the bytes when a wallet mangles them. A
+  // wallet-side broadcast also races the relay's genesis registration.
+  const wc = builder.generateWcTransactionObject({ broadcast: false, userPrompt });
   return {
     request: {
       transaction: {
         transaction: builder.build(),
         sourceOutputs: wc.sourceOutputs.map(toRelaySourceOutput),
-        broadcast: true,
+        broadcast: false,
         userPrompt,
       },
       inputPaths: [[0, 'receive', 0]], // the parent input — MUST be input 0

@@ -39,6 +39,12 @@ class SettingsUpdate(BaseModel):
     alerts: AlertConfig | None = None
 
 
+class BroadcastBody(BaseModel):
+    """A wallet-signed raw tx for the relay to sanity-check and broadcast."""
+
+    tx_hex: str = Field(min_length=20)
+
+
 class GoalShowDeploy(BaseModel):
     """Performer-deployed goal show registration (wallet-signed genesis).
 
@@ -253,6 +259,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             "ok": True,
             "stopped": orchestrator.safety.stopped,
             "connection": orchestrator.connection_state,
+            "network": await orchestrator.network(),
             "address": orchestrator.current_tip_address(),
             "token_menu": _token_menu(settings),
             "goal_pot": (
@@ -512,6 +519,48 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
     async def api_height() -> dict:
         """Current block height — the deploy form's deadline hint."""
         return {"height": await orchestrator.current_height()}
+
+    @app.post("/api/broadcast", dependencies=[Depends(auth)])
+    async def api_broadcast(body: BroadcastBody) -> dict:
+        """Broadcast a wallet-signed tx for the deploy flow. Sanity-checks
+        token categories against the genesis rule first: a wallet that
+        re-serializes a token prefix wrongly (flipped category bytes) gets
+        a precise 400 HERE, with the bytes logged — not an opaque node
+        rejection after the fact."""
+        from lovecash.bch.tokens import TokenParseError, parse_tx, tx_input0_outpoint
+
+        try:
+            raw = bytes.fromhex(body.tx_hex)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="tx_hex is not hex") from exc
+        try:
+            outputs = parse_tx(raw)
+            genesis_category, genesis_vout = tx_input0_outpoint(raw)
+        except TokenParseError as exc:
+            raise HTTPException(status_code=400, detail=f"tx does not parse: {exc}") from exc
+        for out in outputs:
+            if out.token is not None and (
+                out.token.category != genesis_category or genesis_vout != 0
+            ):
+                log.warning(
+                    "broadcast refused: token category %s vs genesis %s (vout %d); tx=%s",
+                    out.token.category, genesis_category, genesis_vout, body.tx_hex,
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"token category {out.token.category[:16]}… is not a valid genesis "
+                        f"of input 0 ({genesis_category[:16]}…, vout {genesis_vout}) — "
+                        "a token genesis must spend output index 0 of its parent; "
+                        "self-send in your wallet first"
+                    ),
+                )
+        try:
+            txid = await orchestrator.broadcast_tx(body.tx_hex)
+        except Exception as exc:
+            log.warning("node rejected broadcast: %s; tx=%s", exc, body.tx_hex)
+            raise HTTPException(status_code=502, detail=f"node rejected: {exc}") from exc
+        return {"ok": True, "txid": txid}
 
     @app.post("/api/goal_show", dependencies=[Depends(auth)])
     async def deploy_goal_show(body: GoalShowDeploy) -> dict:

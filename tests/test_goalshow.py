@@ -156,13 +156,13 @@ def _token_payload(script: bytes, category: str = CAT_DISPLAY, bitfield: int = 0
     return payload + script
 
 
-def _genesis_hex(token_payloads: list[bytes], input0_category: str = CAT_DISPLAY, seed: int = 5000) -> str:
+def _genesis_hex(token_payloads: list[bytes], input0_category: str = CAT_DISPLAY, seed: int = 5000, vout: int = 0) -> str:
     """One-tx genesis+seed: input 0's outpoint txid IS the category."""
     tx = bytearray()
     tx += (2).to_bytes(4, "little")  # version
     tx += b"\x01"  # one input
     tx += bytes.fromhex(input0_category)[::-1]
-    tx += (0).to_bytes(4, "little")  # vout 0
+    tx += vout.to_bytes(4, "little")
     tx += b"\x00"  # empty scriptSig (the node already checked the signature)
     tx += b"\xff\xff\xff\xff"
     tx += bytes([1 + len(token_payloads)])
@@ -262,6 +262,23 @@ def test_verify_genesis_tx_rejects_wrong_address():
             GOAL,
             DEADLINE,
             wrong,
+        )
+
+
+def test_verify_genesis_tx_rejects_nonzero_outpoint_index():
+    """CHIP-2022-02: only outpoint index 0 can create a category — the
+    chipnet rejection that gate-tested the wallet deploy flow."""
+    import pytest
+
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    with pytest.raises(ValueError, match="output index 0"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking())], vout=2),
+            bytes.fromhex(PKH),
+            GOAL,
+            DEADLINE,
+            POT_ADDR,
         )
 
 

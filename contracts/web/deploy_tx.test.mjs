@@ -87,7 +87,7 @@ test('deploy builder: placeholder path produces a relay-safe WizardConnect reque
   });
   const { transaction, inputPaths } = request;
   assert.match(transaction.transaction, /^[0-9a-f]+$/);
-  assert.equal(transaction.broadcast, true);
+  assert.equal(transaction.broadcast, false); // the RELAY broadcasts (deploy flow)
   assert.deepEqual(inputPaths, [[0, 'receive', 0]]); // parent MUST be input 0
   assert.equal(transaction.sourceOutputs.length, 1);
   assert.equal(transaction.sourceOutputs[0].unlockingBytecode, ''); // wallet fills this
@@ -108,7 +108,7 @@ test('deploy builder: rejects when no tokenless UTXO covers seed+fee+dust', asyn
   await assert.rejects(() => buildDeployTx({
     artifact, goalSats: GOAL_SATS, deadline: DEADLINE,
     funderUtxos: [apiShape(dusty)], funderAddress: mockAddr(performer.pkh), provider,
-  }), /no single tokenless UTXO/);
+  }), /output index 0/);
 
   const tokenUtxo = provider.addUtxo(binToHex(p2pkhLock(performer.pkh)), {
     txid: nextTxid(), vout: 0, satoshis: 20_000n,
@@ -117,7 +117,18 @@ test('deploy builder: rejects when no tokenless UTXO covers seed+fee+dust', asyn
   await assert.rejects(() => buildDeployTx({
     artifact, goalSats: GOAL_SATS, deadline: DEADLINE,
     funderUtxos: [apiShape(tokenUtxo)], funderAddress: mockAddr(performer.pkh), provider,
-  }), /no single tokenless UTXO/);
+  }), /output index 0/);
+});
+
+test('deploy builder: rejects a parent not at output index 0 (genesis rule)', async () => {
+  const { provider, performer } = setup();
+  // Ample sats but at vout 2 — CHIP-2022-02: only outpoint index 0 can
+  // create a token category (bad-txns-token-invalid-category otherwise).
+  const vout2 = provider.addUtxo(binToHex(p2pkhLock(performer.pkh)), { txid: nextTxid(), vout: 2, satoshis: 20_000n });
+  await assert.rejects(() => buildDeployTx({
+    artifact, goalSats: GOAL_SATS, deadline: DEADLINE,
+    funderUtxos: [apiShape(vout2)], funderAddress: mockAddr(performer.pkh), provider,
+  }), /output index 0/);
 });
 
 test('deploy builder: token-aware performer address works (z... form)', async () => {

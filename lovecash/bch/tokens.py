@@ -109,16 +109,24 @@ def parse_output_payload(payload: bytes) -> tuple[TokenData | None, bytes]:
     return token, payload[off:]
 
 
-def tx_input0_txid(raw: bytes) -> str:
-    """The txid (display hex) of input 0's outpoint — the token category
-    of any genesis this transaction performs."""
-    if len(raw) < 4 + 1 + 32:
+def tx_input0_outpoint(raw: bytes) -> tuple[str, int]:
+    """Input 0's outpoint as (txid display hex, vout). Both halves matter for
+    token genesis: only outpoint index 0 can create a category."""
+    if len(raw) < 4 + 1 + 32 + 4:
         raise TokenParseError("tx too short")
     off = 4  # version
     n_in, off = _read_compactsize(raw, off)
     if n_in < 1:
         raise TokenParseError("no inputs")
-    return raw[off : off + 32][::-1].hex()
+    txid = raw[off : off + 32][::-1].hex()
+    vout = int.from_bytes(raw[off + 32 : off + 36], "little")
+    return txid, vout
+
+
+def tx_input0_txid(raw: bytes) -> str:
+    """The txid (display hex) of input 0's outpoint — the token category
+    of any genesis this transaction performs."""
+    return tx_input0_outpoint(raw)[0]
 
 
 def parse_tx(raw: bytes) -> list[TxOutput]:

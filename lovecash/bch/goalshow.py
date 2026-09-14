@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 
 from lovecash.bch.cashaddr import to_script
-from lovecash.bch.tokens import parse_tx, tx_input0_txid
+from lovecash.bch.tokens import parse_tx, tx_input0_outpoint
 
 # Compiled goal_show.cash artifact bytecode (cashc 0.13.2), hex.
 # Constructor args are NOT included — they are prepended as data pushes
@@ -109,9 +109,13 @@ def verify_genesis_tx(
     try:
         raw = bytes.fromhex(raw_hex)
         outputs = parse_tx(raw)
-        genesis_category = tx_input0_txid(raw)
+        genesis_category, genesis_vout = tx_input0_outpoint(raw)
     except ValueError as exc:
         raise ValueError(f"genesis tx does not parse: {exc}") from exc
+
+    if genesis_vout != 0:
+        # CHIP-2022-02: only outpoint index 0 can create a token category.
+        raise ValueError("genesis input 0 must spend output index 0 of its parent")
 
     token_outputs = [o for o in outputs if o.token is not None]
     if len(token_outputs) != 1:

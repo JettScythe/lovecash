@@ -64,7 +64,9 @@ The covenant enforces abandonment protection, not honesty about demand:
   flow — dashboard deploy, or `chipnet_e2e.mjs --deploy` for testing —
   makes the genesis transaction ALSO the seed: the minting NFT is created
   directly into the covenant (category = parent outpoint txid, computable
-  pre-broadcast), so verification collapses to one tx: exactly one token
+  pre-broadcast; CHIP-2022-02 requires the parent to sit at **outpoint
+  index 0** — a vout≠0 parent is rejected by the node with
+  `bad-txns-token-invalid-category`), so verification collapses to one tx: exactly one token
   output, the minting NFT, locked to the covenant. The relay enforces
   exactly this check server-side in `POST /api/goal_show`
   (`verify_genesis_tx`) before it watches or persists a show. A split
