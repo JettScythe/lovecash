@@ -76,3 +76,26 @@ def test_example_config_validates():
         "ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
     )
     Settings.model_validate(data)
+
+
+def test_env_var_beats_yaml(tmp_path, monkeypatch):
+    """from_yaml must let LOVECASH_* env vars override file values
+    (docs/self-hosting.md promise; pydantic gives init data priority over
+    env by default, so the file would silently win without the pruning)."""
+    from lovecash.config import Settings
+
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        yaml.safe_dump(
+            {
+                "bch": {"xpub": "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6"
+                        "ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"},
+                "server": {"bind_port": 8080},
+            }
+        )
+    )
+    monkeypatch.setenv("LOVECASH_SERVER__BIND_PORT", "8090")
+    assert Settings.from_yaml(cfg).server.bind_port == 8090
+    # Unset keys still come from the file.
+    monkeypatch.delenv("LOVECASH_SERVER__BIND_PORT")
+    assert Settings.from_yaml(cfg).server.bind_port == 8080

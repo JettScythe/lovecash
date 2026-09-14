@@ -1,0 +1,25 @@
+# THROWAWAY chipnet test config — wallet-pairing manual test only.
+# Not for mainnet. See docs/covenant-goal-shows.md.
+limits:
+  max_strength: 0 # toy never fires in this test
+  max_duration_s: 1
+lovense:
+  host: "127.0.0.1"
+  port: 30010
+bch:
+  xpub: "xpub6Bfz1QGPd74g58ocw39DcspVEYxCuSHHhxF2i6XtEBFnWEvv1HoCbcff2R2M18AfXv3RhA5XcLe6ZEi1mj6sD7RED2nERSZjTUZsKPssnCn"
+  servers:
+    - host: "chipnet.imaginary.cash"
+      port: 50002
+      ssl: true
+      tls_verify: true
+server:
+  enabled: true
+  bind_host: "127.0.0.1"
+  bind_port: 8080
+goal_show:
+  address: "bchtest:rdc9upuf90av6xxyzyzwmagaun99xtvrlqzs3j50fqay9086sx3j75qsdq3kt"
+  goal_sats: 500000
+  deadline: 321989
+  performer_pkh: "3b3c112959f3a374c5a00a22affd722c123653c7"
+rules: []

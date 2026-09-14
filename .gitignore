@@ -17,3 +17,10 @@ wheels/
 .coverage
 config.yaml.bak
 scratch_*.py
+
+# Phase 3 covenant toolchain (compiled via dockerized node)
+contracts/node_modules/
+contracts/package-lock.json
+contracts/.chipnet-wif
+contracts/.chipnet-shows.json
+contracts/web-dist/

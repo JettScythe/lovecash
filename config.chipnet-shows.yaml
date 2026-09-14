@@ -1,0 +1,25 @@
+# THROWAWAY chipnet config — covenant show 1 auto-claim test (PR #11).
+# Not for mainnet. Pot deployed by contracts/chipnet_shows.mjs.
+limits:
+  max_strength: 0 # toy never fires in this test
+  max_duration_s: 1
+lovense:
+  host: "127.0.0.1"
+  port: 30010
+bch:
+  xpub: "xpub6Bfz1QGPd74g58ocw39DcspVEYxCuSHHhxF2i6XtEBFnWEvv1HoCbcff2R2M18AfXv3RhA5XcLe6ZEi1mj6sD7RED2nERSZjTUZsKPssnCn"
+  servers:
+    - host: "chipnet.imaginary.cash"
+      port: 50002
+      ssl: true
+      tls_verify: true
+server:
+  enabled: true
+  bind_host: "127.0.0.1"
+  bind_port: 8080
+goal_show:
+  address: "bchtest:rd6283wcfg4myul5p5y45cngk024gtvduqme9w543gxhxspm6hjkg7qtrp40w"
+  goal_sats: 100000
+  deadline: 423055
+  performer_pkh: "f245d8c86b435b317850dc06c744e18a528c5df7"
+rules: []
