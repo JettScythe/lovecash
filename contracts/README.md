@@ -15,6 +15,13 @@ no WalletConnect project id). After any contract change: `npm run build-web` (do
 Refunds run through the same bundle: it lists the viewer's receipt NFTs and builds the
 refund tx (only the receipt input needs the wallet's signature).
 
+Performer deploy flow: the dashboard's Goal-show card (`web/deploy_ui.js` +
+`web/deploy_tx.mjs`, same bundle) builds the one-tx genesis+seed, Cashonize signs the
+parent P2PKH input, and the relay re-verifies the genesis on-chain
+(`POST /api/goal_show` → `lovecash/bch/goalshow.py: verify_genesis_tx`) before watching
+the pot — the WIF-file `chipnet_e2e.mjs --deploy` flow below is for chipnet testing only.
+The bundle entry is `web/ui.js` (pledge_ui + deploy_ui).
+
 Deploy flow (chipnet_e2e.mjs): genesis IS the seed — one transaction creates the minting
 NFT directly into the covenant, so verifying a show is a one-tx check (exactly one token
 output, the minting NFT, locked to the covenant). Never split mint-then-seed: the gap

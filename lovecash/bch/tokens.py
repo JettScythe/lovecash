@@ -109,6 +109,18 @@ def parse_output_payload(payload: bytes) -> tuple[TokenData | None, bytes]:
     return token, payload[off:]
 
 
+def tx_input0_txid(raw: bytes) -> str:
+    """The txid (display hex) of input 0's outpoint — the token category
+    of any genesis this transaction performs."""
+    if len(raw) < 4 + 1 + 32:
+        raise TokenParseError("tx too short")
+    off = 4  # version
+    n_in, off = _read_compactsize(raw, off)
+    if n_in < 1:
+        raise TokenParseError("no inputs")
+    return raw[off : off + 32][::-1].hex()
+
+
 def parse_tx(raw: bytes) -> list[TxOutput]:
     """Parse a raw BCH transaction, returning its outputs.
 

@@ -144,6 +144,33 @@ Each stream:
 To stop: press Ctrl-C in the terminal. The toy stops and lovecash
 shuts down cleanly.
 
+## Optional: all-or-nothing goal shows
+
+A **goal show** is a tip goal enforced by a smart contract instead of
+by trust: viewers pledge into a contract pot, you get the whole pot
+only if the goal is met by the deadline — otherwise every pledger can
+refund themselves. Neither side has to trust the other, and lovecash
+never holds anyone's money.
+
+To create one:
+
+1. Open`http://localhost:8080/dashboard` and find the **Goal show**
+   card.
+2. Enter your goal (in sats) and a deadline block, then click
+   **Connect wallet**. Scan the QR with Cashonize (v0.9+).
+3. Click **Create goal show** and approve in Cashonize. Your wallet
+   signs and broadcasts the creation transaction — lovecash never sees
+   your keys. It costs a 5000-sat seed (returned to you when the show
+   settles) plus a sub-cent fee.
+4. The relay independently verifies the creation on-chain, saves it to
+   `config.yaml`, and starts watching the pot immediately — no restart.
+   Your overlay's goal bar now tracks pledges.
+
+Viewers pledge from the`/tip` page with their own Cashonize wallet.
+The moment the pot reaches your goal, lovecash claims it for you
+automatically — it arrives as an ordinary tip. Pledges themselves never
+trigger your toy.
+
 ## Where to go next
 
 - Design your tip menu: [Tip Rules Guide](tip-rules.md)

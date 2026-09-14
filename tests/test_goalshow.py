@@ -136,3 +136,208 @@ async def test_auto_claim_needs_performer_pkh():
     src = _src(pot_value=150_000, performer_pkh="")
     await src._maybe_auto_claim(150_000)
     assert src._client.broadcasts == []
+
+
+# --- genesis verification (performer wallet-signed deploy) ---
+
+
+def _locking(pkh: str = PKH, goal: int = GOAL, deadline: int = DEADLINE, cat: str = CAT_DISPLAY) -> bytes:
+    from lovecash.bch.goalshow import _p2sh32_locking, redeem_script
+
+    return _p2sh32_locking(
+        redeem_script(bytes.fromhex(pkh), goal, deadline, bytes.fromhex(cat)[::-1])
+    )
+
+
+def _token_payload(script: bytes, category: str = CAT_DISPLAY, bitfield: int = 0x22, commitment: bytes = b"") -> bytes:
+    payload = b"\xef" + bytes.fromhex(category)[::-1] + bytes([bitfield])
+    if bitfield & 0x40:
+        payload += bytes([len(commitment)]) + commitment
+    return payload + script
+
+
+def _genesis_hex(token_payloads: list[bytes], input0_category: str = CAT_DISPLAY, seed: int = 5000) -> str:
+    """One-tx genesis+seed: input 0's outpoint txid IS the category."""
+    tx = bytearray()
+    tx += (2).to_bytes(4, "little")  # version
+    tx += b"\x01"  # one input
+    tx += bytes.fromhex(input0_category)[::-1]
+    tx += (0).to_bytes(4, "little")  # vout 0
+    tx += b"\x00"  # empty scriptSig (the node already checked the signature)
+    tx += b"\xff\xff\xff\xff"
+    tx += bytes([1 + len(token_payloads)])
+    change = b"\x76\xa9\x14" + bytes.fromhex(PKH) + b"\x88\xac"
+    tx += (9000).to_bytes(8, "little") + bytes([len(change)]) + change
+    for payload in token_payloads:
+        tx += seed.to_bytes(8, "little") + bytes([len(payload)]) + payload
+    tx += (0).to_bytes(4, "little")  # locktime
+    return tx.hex()
+
+
+def test_verify_genesis_tx_valid():
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    info = verify_genesis_tx(
+        _genesis_hex([_token_payload(_locking())]),
+        bytes.fromhex(PKH),
+        GOAL,
+        DEADLINE,
+        POT_ADDR,
+    )
+    assert info == {"category": CAT_DISPLAY, "seed_sats": 5000}
+
+
+def test_verify_genesis_tx_rejects_wrong_constructor():
+    import pytest
+
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    with pytest.raises(ValueError, match="not locked to this show's covenant"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking())]),
+            bytes.fromhex("22" * 20),  # not the deployer's pkh
+            GOAL,
+            DEADLINE,
+            POT_ADDR,
+        )
+
+
+def test_verify_genesis_tx_rejects_split_mint():
+    import pytest
+
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    # A second token output = the mint-then-seed forgery window.
+    with pytest.raises(ValueError, match="exactly one token output"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking()), _token_payload(b"\x76\xa9\x14" + bytes.fromhex(PKH) + b"\x88\xac")]),
+            bytes.fromhex(PKH),
+            GOAL,
+            DEADLINE,
+            POT_ADDR,
+        )
+
+
+def test_verify_genesis_tx_rejects_committed_nft():
+    import pytest
+
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    with pytest.raises(ValueError, match="not a bare minting NFT"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking(), bitfield=0x62, commitment=b"\x01" * 4)]),
+            bytes.fromhex(PKH),
+            GOAL,
+            DEADLINE,
+            POT_ADDR,
+        )
+
+
+def test_verify_genesis_tx_rejects_category_mismatch():
+    import pytest
+
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    with pytest.raises(ValueError, match="not the genesis category"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking(cat="ff" * 32), category="ff" * 32)]),
+            bytes.fromhex(PKH),
+            GOAL,
+            DEADLINE,
+            POT_ADDR,
+        )
+
+
+def test_verify_genesis_tx_rejects_wrong_address():
+    import pytest
+
+    from lovecash.bch.cashaddr import _encode
+    from lovecash.bch.goalshow import verify_genesis_tx
+
+    wrong = _encode(_locking(goal=GOAL + 1)[2:34], version=0x1B, prefix="bchtest")
+    with pytest.raises(ValueError, match="does not match the given pot address"):
+        verify_genesis_tx(
+            _genesis_hex([_token_payload(_locking())]),
+            bytes.fromhex(PKH),
+            GOAL,
+            DEADLINE,
+            wrong,
+        )
+
+
+# --- /api/goal_show endpoint ---
+
+
+def _deploy_payload(txid: str = "aa" * 32) -> dict:
+    return {
+        "genesis_txid": txid,
+        "goal_sats": GOAL,
+        "deadline": DEADLINE,
+        "performer_pkh": PKH,
+        "address": POT_ADDR,
+    }
+
+
+def _server_client(monkeypatch, raw_hex: str | None, attached: list):
+    import asyncio
+
+    import pytest
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from lovecash.config import BchConfig, Limits, LovenseConfig, ServerConfig, Settings
+    from lovecash.core.orchestrator import Orchestrator
+    from lovecash.server.app import create_app
+
+    async def _noop_run(self):
+        await asyncio.Event().wait()
+
+    async def _raw(self, txid):
+        return raw_hex
+
+    async def _attach(self, gs):
+        attached.append(gs)
+
+    monkeypatch.setattr(Orchestrator, "run", _noop_run)
+    monkeypatch.setattr(Orchestrator, "raw_transaction", _raw)
+    monkeypatch.setattr(Orchestrator, "attach_goal_show", _attach)
+    cfg = Settings(
+        limits=Limits(),
+        lovense=LovenseConfig(),
+        bch=BchConfig(xpub=XPUB),
+        server=ServerConfig(),
+    )
+    return TestClient(create_app(cfg), base_url="http://127.0.0.1:8080")
+
+
+def test_deploy_endpoint_verifies_attaches_and_reports(monkeypatch):
+    attached: list = []
+    genesis = _genesis_hex([_token_payload(_locking())])
+    with _server_client(monkeypatch, genesis, attached) as client:
+        resp = client.post("/api/goal_show", json=_deploy_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] and body["watching"] and not body["needs_restart"]
+    assert body["category"] == CAT_DISPLAY and body["seed_sats"] == 5000
+    assert not body["persisted"]  # no config_path in tests
+    assert len(attached) == 1 and attached[0].address == POT_ADDR
+
+
+def test_deploy_endpoint_rejects_forged_genesis(monkeypatch):
+    attached: list = []
+    forged = _genesis_hex([_token_payload(_locking(pkh="22" * 20), category=CAT_DISPLAY)])
+    # forged tx locks to the "22" covenant but claims the "11" show's params
+    with _server_client(monkeypatch, forged, attached) as client:
+        resp = client.post("/api/goal_show", json=_deploy_payload())
+    assert resp.status_code == 400
+    assert "not locked" in resp.json()["detail"]
+    assert attached == []
+
+
+def test_deploy_endpoint_404_until_tx_visible(monkeypatch):
+    attached: list = []
+    with _server_client(monkeypatch, None, attached) as client:
+        resp = client.post("/api/goal_show", json=_deploy_payload())
+    assert resp.status_code == 404
+    assert attached == []

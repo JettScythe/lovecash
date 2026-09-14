@@ -248,6 +248,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <section class="card">
       <h2>Goal show</h2>
       <div id="goalshow"><div class="muted">loading…</div></div>
+      <div id="goalshow-deploy-mount"></div>
     </section>
   </div>
 
@@ -572,7 +573,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     if (!pot) {
       const m = document.createElement('div');
       m.className = 'muted';
-      m.textContent = 'No goal show configured. Covenant all-or-nothing shows are created with the contracts/ tooling for now — see docs/covenant-goal-shows.md.';
+      m.textContent = 'No goal show configured — create one below (your wallet signs; lovecash never touches keys).';
       goalshowEl.appendChild(m);
       return;
     }
@@ -922,6 +923,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   setInterval(pollToys, 2000);
   setInterval(tickUptime, 1000);
   tickUptime();
+
+  // Goal-show deploy UI lives in the covenant bundle (WizardConnect +
+  // cashscript); the plain dashboard stays dependency-free.
+  import("/static/pledge.bundle.js").then(function () {
+    if (window.LovecashDeploy) {
+      window.LovecashDeploy.init(document.getElementById("goalshow-deploy-mount"));
+    }
+  }).catch(function () { /* bundle absent: read-only goal card remains */ });
 </script>
 </body>
 </html>

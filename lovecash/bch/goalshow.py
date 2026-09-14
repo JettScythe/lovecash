@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 
 from lovecash.bch.cashaddr import to_script
+from lovecash.bch.tokens import parse_tx, tx_input0_txid
 
 # Compiled goal_show.cash artifact bytecode (cashc 0.13.2), hex.
 # Constructor args are NOT included — they are prepended as data pushes
@@ -84,6 +85,58 @@ def redeem_script(
     )
 
 
+def _p2sh32_locking(redeem: bytes) -> bytes:
+    # OP_HASH256 — DOUBLE sha256, matching the 2023 upgrade.
+    return b"\xaa\x20" + hashlib.sha256(hashlib.sha256(redeem).digest()).digest() + b"\x87"
+
+
+def verify_genesis_tx(
+    raw_hex: str,
+    performer_pkh: bytes,
+    goal_sats: int,
+    deadline: int,
+    pot_address: str,
+) -> dict:
+    """Verify a goal-show genesis tx (performer deploy, wallet-signed).
+
+    The one-tx genesis+seed collapses verification to: exactly one token
+    output — the minting NFT, created directly into the covenant whose
+    constructor binds this show's parameters. A split mint-then-seed flow
+    leaves a window where the deployer can mint forged receipts to their
+    own pkh and drain refunds later, so it is REFUSED here. Returns
+    {"category", "seed_sats"} on success; raises ValueError otherwise.
+    """
+    try:
+        raw = bytes.fromhex(raw_hex)
+        outputs = parse_tx(raw)
+        genesis_category = tx_input0_txid(raw)
+    except ValueError as exc:
+        raise ValueError(f"genesis tx does not parse: {exc}") from exc
+
+    token_outputs = [o for o in outputs if o.token is not None]
+    if len(token_outputs) != 1:
+        raise ValueError(
+            f"genesis must have exactly one token output, found {len(token_outputs)}"
+        )
+    pot_out = token_outputs[0]
+    t = pot_out.token
+    if t is None or t.nft_capability != "minting" or t.commitment or t.amount != 0:
+        raise ValueError("token output is not a bare minting NFT")
+    if t.category != genesis_category:
+        raise ValueError("token output category is not the genesis category")
+
+    locking = _p2sh32_locking(
+        redeem_script(
+            performer_pkh, goal_sats, deadline, bytes.fromhex(genesis_category)[::-1]
+        )
+    )
+    if pot_out.script != locking:
+        raise ValueError("minting NFT is not locked to this show's covenant")
+    if locking != to_script(pot_address):
+        raise ValueError("constructed covenant does not match the given pot address")
+    return {"category": genesis_category, "seed_sats": pot_out.value_sats}
+
+
 def build_claim_tx(
     pot_txid: str,
     pot_vout: int,
@@ -98,8 +151,7 @@ def build_claim_tx(
     script does not hash to the configured pot address — a mismatched
     config can never produce a valid claim, so refuse early."""
     redeem = redeem_script(performer_pkh, goal_sats, deadline, category_raw)
-    # P2SH32: OP_HASH256 — DOUBLE sha256, matching the 2023 upgrade.
-    locking = b"\xaa\x20" + hashlib.sha256(hashlib.sha256(redeem).digest()).digest() + b"\x87"
+    locking = _p2sh32_locking(redeem)
     if locking != to_script(pot_address):
         raise ValueError("constructed covenant does not match the configured pot address")
     if pot_sats < goal_sats:

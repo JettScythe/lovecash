@@ -61,15 +61,17 @@ The covenant enforces abandonment protection, not honesty about demand:
   treat "refund at the deadline" as a duty, not an option.
 - **Genesis verification (hard assumption).** Pledgers (or the client
   tooling) MUST verify the goal-show category's genesis. The supported
-  flow — `chipnet_e2e.mjs --deploy` — makes the genesis transaction ALSO
-  the seed: the minting NFT is created directly into the covenant
-  (category = parent outpoint txid, computable pre-broadcast), so
-  verification collapses to one tx: exactly one token output, the
-  minting NFT, locked to the covenant. A split mint-then-seed flow
-  leaves a window where the performer can mint forged receipts to their
-  own pkh and drain other pledgers' refunds later — never deploy that
-  way. Note the covenant binds the category in raw serialized byte
-  order — the reverse of what wallets/explorers display.
+  flow — dashboard deploy, or `chipnet_e2e.mjs --deploy` for testing —
+  makes the genesis transaction ALSO the seed: the minting NFT is created
+  directly into the covenant (category = parent outpoint txid, computable
+  pre-broadcast), so verification collapses to one tx: exactly one token
+  output, the minting NFT, locked to the covenant. The relay enforces
+  exactly this check server-side in `POST /api/goal_show`
+  (`verify_genesis_tx`) before it watches or persists a show. A split
+  mint-then-seed flow leaves a window where the performer can mint forged
+  receipts to their own pkh and drain other pledgers' refunds later —
+  never deploy that way. Note the covenant binds the category in raw
+  serialized byte order — the reverse of what wallets/explorers display.
 - **One category per show.** Receipts are bound to the token category,
   not to a covenant instance. Reusing a category across shows lets old
   receipts refund against a new show's pot. Footgun: don't.
@@ -130,13 +132,22 @@ The covenant enforces abandonment protection, not honesty about demand:
 - **Done:** `goal_show:` config block (covenant token address + goal).
   lovecash subscribes the pot's scripthash alongside the xpub addresses,
   but pot changes only refresh the overlay goal bar — pledges are not
-  tips and never trigger toys. Derive the address with
-  `contracts/address.mjs` (dockerized node; see contracts/README.md).
+  tips and never trigger toys.
+- **Done:** performer deploy from the dashboard (no CLI, no keys in
+  lovecash). The Goal-show card builds the one-tx genesis+seed client-side
+  (`contracts/web/deploy_tx.mjs`), Cashonize signs the parent P2PKH input
+  via WizardConnect and broadcasts, then `POST /api/goal_show` re-verifies
+  the genesis on-chain (exactly one token output: the minting NFT, locked
+  to the covenant bound to the claimed parameters — split mint-then-seed
+  is refused), persists the config, and hot-attaches the pot watcher
+  without a restart. The old `chipnet_e2e.mjs --deploy` WIF flow remains
+  for chipnet testing only.
 - **Auto-claim:** the moment the watched pot balance reaches the goal,
   the relay builds and broadcasts the permissionless claim tx itself
   (`lovecash/bch/goalshow.py`, golden-tested byte-for-byte against
-  cashscript's TransactionBuilder). The performer is paid without
-  touching a wallet; on any failure they can still claim manually.
+  cashscript's TransactionBuilder, exact fee at 1 sat/byte). The
+  performer is paid without touching a wallet; on any failure they can
+  still claim manually.
 - On settlement: the performer's normal tip watcher sees the payout as
   an ordinary confirmed payment — existing pipeline, unchanged.
 - **Done:** the `/tip` page pledge mode builds the covenant transaction

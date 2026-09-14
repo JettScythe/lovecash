@@ -12,10 +12,10 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import HTMLResponse, Response
 from fastapi.websockets import WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lovecash.bch.payment import build_uri, qr_png, qr_svg
-from lovecash.config import AlertConfig, Limits, Settings
+from lovecash.config import AlertConfig, GoalShowConfig, Limits, Settings
 from lovecash.core.orchestrator import Orchestrator
 from lovecash.models import TipRule, TokenRule
 from lovecash.server.relay import RelayHub
@@ -37,6 +37,19 @@ class SettingsUpdate(BaseModel):
     rules: list[TipRule] | None = None
     token_rules: list[TokenRule] | None = None
     alerts: AlertConfig | None = None
+
+
+class GoalShowDeploy(BaseModel):
+    """Performer-deployed goal show registration (wallet-signed genesis).
+
+    The server re-verifies the genesis tx on-chain before trusting any of
+    these client-provided parameters — see verify_genesis_tx."""
+
+    genesis_txid: str = Field(pattern="^[0-9a-f]{64}$")
+    goal_sats: int
+    deadline: int
+    performer_pkh: str
+    address: str  # covenant token address derived client-side
 
 
 def _apply_in_place(model: BaseModel, new: BaseModel) -> None:
@@ -494,6 +507,66 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             )
             await hub.broadcast({"type": "alerts", "data": alerts.model_dump()})
         return {"ok": True, "applied": applied, "persisted": persisted}
+
+    @app.get("/api/height")
+    async def api_height() -> dict:
+        """Current block height — the deploy form's deadline hint."""
+        return {"height": await orchestrator.current_height()}
+
+    @app.post("/api/goal_show", dependencies=[Depends(auth)])
+    async def deploy_goal_show(body: GoalShowDeploy) -> dict:
+        """Register a freshly deployed goal show. The server re-verifies
+        the genesis tx itself (exactly one minting NFT, straight into the
+        covenant bound to these parameters) — client claims are never
+        trusted. On success the pot is watched immediately (no restart)."""
+        from lovecash.bch.goalshow import verify_genesis_tx
+
+        try:
+            gs = GoalShowConfig(
+                address=body.address,
+                goal_sats=body.goal_sats,
+                deadline=body.deadline,
+                performer_pkh=body.performer_pkh,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raw = await orchestrator.raw_transaction(body.genesis_txid)
+        if raw is None:
+            raise HTTPException(
+                status_code=404,
+                detail="genesis tx not visible to the relay yet — retry in a few seconds",
+            )
+        try:
+            info = verify_genesis_tx(
+                raw,
+                bytes.fromhex(gs.performer_pkh),
+                gs.goal_sats,
+                gs.deadline,
+                gs.address,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"genesis verification failed: {exc}"
+            ) from exc
+        settings.goal_show = gs
+        persisted = False
+        if config_path is not None:
+            settings.save_yaml(config_path)
+            persisted = True
+        try:
+            await orchestrator.attach_goal_show(gs)
+            attached = True
+        except Exception as exc:
+            log.warning("goal-show attach failed (restart to watch the pot): %s", exc)
+            attached = False
+        return {
+            "ok": True,
+            "category": info["category"],
+            "seed_sats": info["seed_sats"],
+            "persisted": persisted,
+            "watching": attached,
+            "needs_restart": not attached,
+        }
 
     @app.websocket("/overlay-ws")
     async def overlay_ws(ws: WebSocket) -> None:

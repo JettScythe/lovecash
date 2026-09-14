@@ -393,6 +393,26 @@ class PaymentSource(TriggerSource):
         hdr = await client.call("blockchain.headers.subscribe")
         return int(hdr.get("height", 0))
 
+    async def raw_transaction(self, txid: str) -> str | None:
+        """Raw hex for a txid (None when not yet visible). Used by the
+        goal-show deploy endpoint to verify a genesis tx."""
+        if self._client is None:
+            return None
+        try:
+            raw = await self._client.call("blockchain.transaction.get", txid)
+        except Exception:
+            return None  # not seen yet (mempool relay lag) — caller retries
+        return raw if isinstance(raw, str) else None
+
+    async def attach_goal_show(self, goal_show: GoalShowConfig) -> None:
+        """Watch a new goal-show pot mid-run — deploy without a restart.
+        Watch-only, same as startup: subscribe + report, never tips."""
+        self._goal_show = goal_show
+        self._pot_sh = to_scripthash(goal_show.address)
+        if self._client is not None:
+            await self._require_client().subscribe_scripthash(self._pot_sh)
+            await self._report_pot_balance()
+
     async def _extend_window(self) -> None:
         client = self._require_client()
         top = self._next_index + self._cfg.gap_limit
