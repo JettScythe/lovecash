@@ -33,7 +33,7 @@ ARTIFACT_HEX = (
     "88c453a169c4539c6352d100886875516868"
 )
 
-CLAIM_FEE_SATS = 1000  # covenant caps the claim fee at 1000 sats
+MAX_CLAIM_FEE_SATS = 1000  # covenant caps the claim fee at 1000 sats
 _CLAIM_SELECTOR = b"\x51"  # OP_1: claim is function index 1
 
 
@@ -106,16 +106,26 @@ def build_claim_tx(
         raise ValueError("goal not met")
 
     script_sig = _CLAIM_SELECTOR + _push(redeem)
-    tx = bytearray()
-    tx += (2).to_bytes(4, "little")  # version
-    tx += b"\x01"  # one input
-    tx += bytes.fromhex(pot_txid)[::-1]
-    tx += pot_vout.to_bytes(4, "little")
-    tx += _compactsize(len(script_sig)) + script_sig
-    tx += b"\xfe\xff\xff\xff"  # sequence (cashscript default)
-    tx += b"\x01"  # one output
-    tx += (pot_sats - CLAIM_FEE_SATS).to_bytes(8, "little")
-    out_script = b"\x76\xa9\x14" + performer_pkh + b"\x88\xac"  # P2PKH
-    tx += _compactsize(len(out_script)) + out_script
-    tx += (0).to_bytes(4, "little")  # locktime
-    return tx.hex()
+
+    def serialize(fee: int) -> bytes:
+        tx = bytearray()
+        tx += (2).to_bytes(4, "little")  # version
+        tx += b"\x01"  # one input
+        tx += bytes.fromhex(pot_txid)[::-1]
+        tx += pot_vout.to_bytes(4, "little")
+        tx += _compactsize(len(script_sig)) + script_sig
+        tx += b"\xfe\xff\xff\xff"  # sequence (cashscript default)
+        tx += b"\x01"  # one output
+        tx += (pot_sats - fee).to_bytes(8, "little")
+        out_script = b"\x76\xa9\x14" + performer_pkh + b"\x88\xac"  # P2PKH
+        tx += _compactsize(len(out_script)) + out_script
+        tx += (0).to_bytes(4, "little")  # locktime
+        return bytes(tx)
+
+    # Exact fee at 1 sat/byte: the tx size doesn't depend on the output
+    # amount, so a dry run gives the real size. The covenant caps the fee
+    # at 1000 sats — refuse to build a tx it would reject.
+    fee = len(serialize(0))
+    if fee > MAX_CLAIM_FEE_SATS:
+        raise ValueError(f"claim fee {fee} exceeds the covenant cap")
+    return serialize(fee).hex()

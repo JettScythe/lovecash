@@ -87,8 +87,8 @@ The covenant enforces abandonment protection, not honesty about demand:
 - **Pledges are linkable.** The receipt NFT sits at the pledger's address
   with the amount committed in cleartext — per-address pledge amounts are
   public on-chain. Unavoidable in this design.
-- **Claim fee is a hardcoded 1000 sats** (~500 is typical at 1 sat/byte)
-  — a small overpay to miners per settlement; the covenant only caps it.
+- **Claim fee is exact** (tx size at 1 sat/byte, ~495 sats for the
+  one-input claim) — the covenant only caps it at 1000.
 - **Auto-claim bookkeeping is in-memory.** A transient broadcast failure
   stalls auto-claim for that pot outpoint until the next pot notification
   or a relay restart. Manual claim always works, and the dashboard

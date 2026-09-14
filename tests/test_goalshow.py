@@ -1,7 +1,8 @@
 """GoalShow auto-claim: the Python claim builder is byte-identical to
-cashscript's TransactionBuilder output (golden fixture generated via
-contracts/node_modules), and the watcher broadcasts it when the pot
-reaches the goal."""
+cashscript's TransactionBuilder output (fixture cross-checked against
+cashscript-py 1.0.3 on 2026-09-13), and the watcher broadcasts it when
+the pot reaches the goal. The claim fee is exact (tx size at 1 sat/byte),
+well under the covenant's 1000-sat cap."""
 
 import asyncio
 
@@ -29,7 +30,7 @@ GOLDEN_CLAIM = (
     "01207f7553798851ce537a8851cf768277011c9d01147f76577f7701808401008881760222"
     "02a2697600c6a16900cc00c6527994a26900cd00c78800d1537a8800d200cf8851cd0376a9"
     "14537a7e0288ac7e8851cc022202a26951cc7c02e80394a26951d10088c453a169c4539c63"
-    "52d100886875516868feffffff0108460200000000001976a914"
+    "52d100886875516868feffffff0101480200000000001976a914"
     "1111111111111111111111111111111111111111" "88ac00000000"
 )
 
