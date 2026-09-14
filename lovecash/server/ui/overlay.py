@@ -227,9 +227,14 @@ _TEMPLATE = """<!DOCTYPE html>
   }
 
   let lastStats = { total_sats: 0, goal_sats: ALERTS.goal_sats };
+  let potMode = false;  // goal_show covenant: bar tracks the pot, not tips
+  const goalLabelEl = document.getElementById("goal-label");
 
   function updateGoal(d) {
-    if (d && typeof d.total_sats === "number") {
+    goalLabelEl.textContent = potMode ? "Goal show · all or nothing" : "Tip goal";
+    if (potMode) {
+      // handled by onPotBalance — stats messages must not clobber it
+    } else if (d && typeof d.total_sats === "number") {
       lastStats.total_sats = d.total_sats;
       if (d.goal_sats !== undefined) lastStats.goal_sats = d.goal_sats;
     }
@@ -244,6 +249,19 @@ _TEMPLATE = """<!DOCTYPE html>
     document.getElementById("goal-nums").textContent =
       lastStats.total_sats.toLocaleString() + " / " +
       goal.toLocaleString() + " sats (" + Math.floor(pct) + "%)";
+  }
+
+  function onPotBalance(d) {
+    if (!d || typeof d.balance_sats !== "number") return;
+    potMode = true;
+    if (d.active === false) {
+      // Show settled (pot claimed) — drop the bar entirely.
+      goalEl.style.display = "none";
+      return;
+    }
+    lastStats.total_sats = d.balance_sats;
+    if (typeof d.goal_sats === "number") lastStats.goal_sats = d.goal_sats;
+    updateGoal();
   }
 
   function renderQueue() {
@@ -309,6 +327,7 @@ _TEMPLATE = """<!DOCTYPE html>
       const msg = JSON.parse(ev.data);
       if (msg.type === "tip") showAlert(msg.data);
       else if (msg.type === "stats") updateGoal(msg.data);
+      else if (msg.type === "goal_pot") onPotBalance(msg.data);
       else if (msg.type === "alerts") {
         Object.assign(ALERTS, msg.data);
         if (ALERTS.accent)
