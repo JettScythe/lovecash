@@ -14,7 +14,8 @@ import { Contract, ElectrumNetworkProvider, TransactionBuilder, placeholderP2PKH
 import { hexToBin } from '@bitauth/libauth';
 import { decodeAddr, mapUtxo, toRelaySourceOutput } from './pledge_tx.mjs';
 
-export const POT_SEED = 5_000n; // >= 678 token-dust floor; matches chipnet e2e
+export const POT_SEED = 800n; // token-output dust floor is ~678; keep margin.
+// Recoverable via a successful claim; locked as dust on an unmet show.
 export const MIN_GOAL_SATS = 100_000n; // mirrors lovecash.config.MIN_GOAL_SATS
 const CHANGE_DUST = 546n;
 const FEE_CEILING = 1000n; // selection pass only; the real fee is measured

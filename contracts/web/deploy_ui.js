@@ -10,7 +10,7 @@
 import { initiateDappRelay } from '@wizardconnect/core';
 import { DappConnectionManager, loadSession } from '@wizardconnect/dapp';
 import { hash160, hexToBin, binToHex, hash256, encodeCashAddress, CashAddressType } from '@bitauth/libauth';
-import { buildDeployTx } from './deploy_tx.mjs';
+import { buildDeployTx, POT_SEED } from './deploy_tx.mjs';
 import artifact from '../goal_show.json';
 
 function el(tag, className, text) {
@@ -78,7 +78,7 @@ window.LovecashDeploy = {
 
     const connectBtn = el('button', 'btn-primary', 'Connect wallet (Cashonize)');
     connectBtn.type = 'button';
-    const createBtn = el('button', 'btn-primary hidden', 'Create goal show (5000 sat seed)');
+    const createBtn = el('button', 'btn-primary hidden', `Create goal show (${POT_SEED} sat seed)`);
     createBtn.type = 'button';
     const forgetBtn = el('button', 'btn-primary hidden', 'Forget this wallet');
     forgetBtn.type = 'button';

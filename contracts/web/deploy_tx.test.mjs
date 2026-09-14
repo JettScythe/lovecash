@@ -104,7 +104,7 @@ test('deploy builder: rejects a goal below the server minimum', async () => {
 
 test('deploy builder: rejects when no tokenless UTXO covers seed+fee+dust', async () => {
   const { provider, performer } = setup();
-  const dusty = provider.addUtxo(binToHex(p2pkhLock(performer.pkh)), { txid: nextTxid(), vout: 0, satoshis: 6_000n });
+  const dusty = provider.addUtxo(binToHex(p2pkhLock(performer.pkh)), { txid: nextTxid(), vout: 0, satoshis: 2_000n });
   await assert.rejects(() => buildDeployTx({
     artifact, goalSats: GOAL_SATS, deadline: DEADLINE,
     funderUtxos: [apiShape(dusty)], funderAddress: mockAddr(performer.pkh), provider,

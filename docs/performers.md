@@ -160,7 +160,7 @@ To create one:
    **Connect wallet**. Scan the QR with Cashonize (v0.9+).
 3. Click **Create goal show** and approve in Cashonize. Your wallet
    signs and broadcasts the creation transaction — lovecash never sees
-   your keys. It costs a 5000-sat seed (returned to you when the show
+   your keys. It costs an 800-sat seed (returned to you when the show
    settles) plus a sub-cent fee.
 4. The relay independently verifies the creation on-chain, saves it to
    `config.yaml`, and starts watching the pot immediately — no restart.
