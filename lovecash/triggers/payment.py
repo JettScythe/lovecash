@@ -145,9 +145,7 @@ class PaymentSource(TriggerSource):
         }
 
     def _our_scripts(self) -> set[bytes]:
-        return {
-            to_script(self._deriver.address(i)) for i in self._sh_to_index.values()
-        }
+        return {to_script(self._deriver.address(i)) for i in self._sh_to_index.values()}
 
     def _extract_token_receipts(self, raw_hex: str) -> list[TokenReceipt]:
         """Token outputs paying our addresses, from the raw tx hex.
@@ -172,7 +170,9 @@ class PaymentSource(TriggerSource):
             if o.token is not None and o.script in ours
         ]
 
-    async def _token_receipts(self, client: ElectrumClient, txid: str) -> list[TokenReceipt]:
+    async def _token_receipts(
+        self, client: ElectrumClient, txid: str
+    ) -> list[TokenReceipt]:
         if not self._token_rules:
             return []
         try:
@@ -180,7 +180,9 @@ class PaymentSource(TriggerSource):
         except Exception as exc:
             # Transport failure degrades to "no tokens", same as a parse
             # failure — the sats path must not depend on this fetch.
-            log.warning("raw tx fetch failed for %s, ignoring tokens: %s", txid[:12], exc)
+            log.warning(
+                "raw tx fetch failed for %s, ignoring tokens: %s", txid[:12], exc
+            )
             return []
         return self._extract_token_receipts(raw)
 
@@ -229,9 +231,7 @@ class PaymentSource(TriggerSource):
                 "blockchain.scripthash.get_balance", self._pot_sh, "include_tokens"
             )
         except Exception:
-            bal = await client.call(
-                "blockchain.scripthash.get_balance", self._pot_sh
-            )
+            bal = await client.call("blockchain.scripthash.get_balance", self._pot_sh)
         total = int(bal.get("confirmed", 0)) + int(bal.get("unconfirmed", 0))
         log.info("Goal pot balance: %d sats", total)
         try:
@@ -394,7 +394,9 @@ class PaymentSource(TriggerSource):
         hdr = await client.call("blockchain.headers.subscribe")
         return int(hdr.get("height", 0))
 
-    _MAINNET_GENESIS = "000000000000000000651ef99cb9fcbe0dadde1d424bd9f15ff20136191a5eec"
+    _MAINNET_GENESIS = (
+        "000000000000000000651ef99cb9fcbe0dadde1d424bd9f15ff20136191a5eec"
+    )
 
     async def network(self) -> str:
         """'mainnet' or 'chipnet' (testnet family), from the connected
@@ -730,7 +732,9 @@ class PaymentSource(TriggerSource):
             if outcome is Outcome.CREDIT:
                 self._mark_seen(txid)
                 self._clear_pending(txid)
-                await self._emit_trigger(txid, amount_sats, 0, memo, emit, index, tokens)
+                await self._emit_trigger(
+                    txid, amount_sats, 0, memo, emit, index, tokens
+                )
             else:
                 # Refused once: wait for the block, don't verify again.
                 self._mark_pending(txid, sh, index)

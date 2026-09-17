@@ -30,9 +30,8 @@ goal 50,000, deadline ~2 months out).
    is a simple sum; chain = chipnet).
 3. Open http://127.0.0.1:8080/tip — the goal-show panel should show the
    seeded pot progress (10,000 / 50,000 sats) once the seed confirms.
-4. Click **Connect wallet** → a pairing QR appears. In Cashonize:
-   dApps/WalletConnect area → WizardConnect → scan (or paste the URI
-   under the QR).
+4. Click **Connect wallet** → a pairing QR appears. In Cashonize: open
+   WizardConnect → scan (or paste the URI under the QR).
 5. Enter 5,000 sats, pledge. Cashonize should show a signing prompt.
    Approve.
 6. Watch the /tip panel and the overlay (http://127.0.0.1:8080/overlay):

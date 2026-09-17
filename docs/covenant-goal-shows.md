@@ -164,7 +164,7 @@ pledge and refund transactions are built client-side; the wallet signs
 only the funder/receipt P2PKH inputs, the covenant input ships complete.
 
 Rejected alternatives: CashConnect (undocumented dapp API, requires a
-centralized WalletConnect Cloud project id) and raw-tx handoff (no
+centralized cloud project id) and raw-tx handoff (no
 read-only channel provides the viewer's UTXOs).
 
 ## Dependencies to evaluate at implementation time

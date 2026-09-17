@@ -163,18 +163,65 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   }
   .set-field input[type="color"] { width: 48px; height: 32px; padding: 0; border: 0; background: none; }
   .rule-row {
-    display: grid; gap: 6px; align-items: end;
-    padding: 8px; margin: 0 0 8px;
-    background: rgba(255, 255, 255, 0.04); border-radius: 8px;
+    padding: 14px; margin: 0 0 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
   }
-  .rule-row.tip { grid-template-columns: 1.2fr 0.65fr 0.65fr 0.9fr 0.55fr 0.5fr 0.7fr auto; }
-  .rule-row.token { grid-template-columns: 1fr 1.8fr 0.6fr 0.6fr 0.9fr 0.5fr 0.5fr 0.7fr auto auto; }
+  .rc-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .rc-head .f-name { flex: 1; font-weight: 600; }
+  .rc-line {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin: 8px 0; color: rgba(255, 255, 255, 0.85); font-size: 14px;
+  }
+  .rc-line input[type="number"] { width: 84px; }
+  .rc-line input[type="text"] { min-width: 0; }
+  .rc-line .f-toy { width: 130px; }
+  .rc-line .f-pattern { width: 220px; }
+  .rc-line .f-positions { width: 260px; }
+  .rc-hint { font-size: 12px; opacity: 0.5; margin: 2px 0 0; }
+  .rule-summary {
+    margin-top: 10px; padding: 7px 10px; border-radius: 8px;
+    background: rgba(255, 92, 138, 0.10); color: #ffb3c7;
+    font-size: 13px; font-weight: 600;
+  }
+  .strength-wrap { display: flex; align-items: center; gap: 8px; }
+  .strength-wrap input[type="range"] { accent-color: #ff5c8a; width: 140px; padding: 0; }
+  .strength-val { min-width: 2ch; font-weight: 700; text-align: right; }
+  .mode-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    border: 1px solid rgba(255, 255, 255, 0.2); background: none;
+    color: #f2f2f5; border-radius: 999px; padding: 6px 14px;
+    font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .pill.active {
+    background: linear-gradient(135deg, #ff5c8a, #ff9a5c);
+    border-color: transparent; font-weight: 700;
+  }
+  .rule-adv {
+    margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 4px;
+  }
+  .rule-adv summary {
+    cursor: pointer; font-size: 11px; opacity: 0.55;
+    text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 0;
+  }
+  .rule-adv-body { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; padding-bottom: 6px; }
+  .rule-adv-body > div { min-width: 110px; }
+  .f-extras-list { display: flex; flex-direction: column; gap: 6px; }
+  .chan-row { display: flex; gap: 6px; align-items: center; }
+  .chan-add {
+    background: none; border: 1px dashed rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.7); border-radius: 8px;
+    padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer;
+    margin-top: 6px;
+  }
   .rule-row label {
     display: block; font-size: 10px; opacity: 0.55;
     text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px;
   }
   .rule-row input, .rule-row select { padding: 6px 8px; font-size: 13px; }
-  .rule-row input[type="checkbox"] { width: auto; accent-color: #ff5c8a; margin-bottom: 8px; }
+  .rule-row input[type="checkbox"] { width: auto; accent-color: #ff5c8a; }
+  .rule-row input[type="range"] { background: none; border: 0; }
   .rule-del {
     background: none; border: 0; color: #ff6b6b;
     font-size: 15px; cursor: pointer; padding: 6px 8px;
@@ -634,7 +681,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   let rawLimits = null; // full objects from GET — save merges over these
   let rawAlerts = null; // so untouched fields (queue seconds etc.) aren't defaulted
 
-  const ACTIONS = ['Vibrate', 'Thrusting', 'Depth', 'Rotate', 'Pump', 'Stop'];
+  const ACTIONS = ['Vibrate', 'Thrusting', 'Depth', 'Rotate', 'Pump',
+    'Oscillate', 'Fingering', 'Suction', 'All', 'Stop'];
   // 2^53-1: the largest exactly-representable int — used as "no upper cap"
   // (the server's 2^63-1 default would round-trip through JS as 2^63).
   const NO_CAP = 9007199254740991;
@@ -678,34 +726,380 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     return b;
   }
   const uncapped = (v) => (v == null || v >= NO_CAP ? '' : v);
+  const classed = (el, c) => { el.classList.add(c); return el; };
+  const CHANNEL_ACTIONS = ACTIONS.filter((a) => a !== 'All' && a !== 'Stop');
+  const PRESETS = ['pulse', 'wave', 'fireworks', 'earthquake'];
+  const MODES = [
+    ['function', 'Function'], ['preset', 'Preset'],
+    ['pattern', 'Pattern'], ['positions', 'Positions (Solace Pro)'],
+  ];
+
+  function ruleMode(r) {
+    if (r.preset) return 'preset';
+    if (r.positions && r.positions.length) return 'positions';
+    if (r.pattern && r.pattern.length) return 'pattern';
+    return 'function';
+  }
+  function modeSelectEl(value) {
+    const s = document.createElement('select');
+    s.className = 'f-mode';
+    for (const [v, label] of MODES) {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = label;
+      s.appendChild(o);
+    }
+    s.value = value;
+    return s;
+  }
+  function applyMode(row) {
+    const mode = row.querySelector('.f-mode').value;
+    row.querySelectorAll('[data-for]').forEach((el) => {
+      el.style.display = el.dataset.for.split(' ').includes(mode) ? '' : 'none';
+    });
+  }
+  function modeWrap(modes, field) { field.dataset.for = modes; return field; }
+
+  function chanRow(spec) {
+    const wrap = document.createElement('div');
+    wrap.className = 'chan-row';
+    const sel = document.createElement('select');
+    for (const a of CHANNEL_ACTIONS) {
+      const o = document.createElement('option');
+      o.value = a; o.textContent = a;
+      sel.appendChild(o);
+    }
+    sel.value = spec && CHANNEL_ACTIONS.includes(spec.action) ? spec.action : 'Vibrate';
+    const num = numInput(spec && spec.strength != null ? spec.strength : 5);
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'rule-del'; del.textContent = '✕';
+    del.title = 'remove channel';
+    del.addEventListener('click', () => wrap.remove());
+    wrap.appendChild(sel); wrap.appendChild(num); wrap.appendChild(del);
+    return wrap;
+  }
+  function extrasEditor(specs) {
+    const wrap = document.createElement('div');
+    const lab = document.createElement('label');
+    lab.textContent = 'extra channels';
+    wrap.appendChild(lab);
+    const list = document.createElement('div');
+    list.className = 'f-extras-list';
+    (specs || []).forEach((s) => list.appendChild(chanRow(s)));
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'chan-add'; add.textContent = '+ channel';
+    add.title = 'drive another channel at its own strength';
+    add.addEventListener('click', () => list.appendChild(chanRow()));
+    wrap.appendChild(list); wrap.appendChild(add);
+    return wrap;
+  }
+
+  function sentence(parts) {
+    const div = document.createElement('div');
+    div.className = 'rc-line';
+    for (const p of parts) {
+      if (typeof p === 'string') {
+        const s = document.createElement('span');
+        s.textContent = p;
+        div.appendChild(s);
+      } else {
+        div.appendChild(p);
+      }
+    }
+    return div;
+  }
+  function modeSpan(modes) {
+    const s = document.createElement('span');
+    s.dataset.for = modes;
+    return s;
+  }
+  function rcHint(modes, text) {
+    const d = document.createElement('div');
+    d.className = 'rc-hint';
+    if (modes) d.dataset.for = modes;
+    d.textContent = text;
+    return d;
+  }
+  function strengthSlider(value) {
+    const wrap = document.createElement('span');
+    wrap.className = 'strength-wrap';
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = '0';
+    range.max = '20';
+    range.className = 'f-strength';
+    range.value = value != null ? value : 5;
+    const out = document.createElement('span');
+    out.className = 'strength-val';
+    out.textContent = range.value;
+    wrap.appendChild(range);
+    wrap.appendChild(out);
+    return wrap;
+  }
+  function presetPills(value) {
+    const outer = document.createElement('span');
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.className = 'f-preset';
+    hidden.value = PRESETS.includes(value) ? value : 'pulse';
+    const pills = document.createElement('span');
+    pills.className = 'mode-pills';
+    for (const p of PRESETS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pill';
+      b.textContent = p;
+      if (p === hidden.value) b.classList.add('active');
+      b.addEventListener('click', () => {
+        hidden.value = p;
+        pills.querySelectorAll('.pill').forEach((x) => x.classList.toggle('active', x === b));
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      pills.appendChild(b);
+    }
+    outer.appendChild(hidden);
+    outer.appendChild(pills);
+    return outer;
+  }
+  function updateSummary(row) {
+    const q = (sel) => row.querySelector(sel);
+    const sv = row.querySelector('.strength-val');
+    if (sv) sv.textContent = q('.f-strength').value;
+    const min = q('.f-min').value || '0';
+    const maxRaw = q('.f-max').value;
+    const unit = row.dataset.unit || 'sats';
+    const range = maxRaw === '' ? min + '+' : min + '–' + maxRaw;
+    const mode = q('.f-mode').value;
+    let what;
+    if (mode === 'preset') {
+      what = 'plays the "' + q('.f-preset').value + '" preset';
+    } else if (mode === 'pattern') {
+      const n = q('.f-pattern').value.split(/[;,]+/).map((x) => x.trim()).filter(Boolean).length;
+      what = 'runs a ' + (n || '?') + '-step pattern';
+    } else if (mode === 'positions') {
+      what = 'glides through a position sequence';
+    } else {
+      what = q('.f-action').value + ' at ' + q('.f-strength').value;
+      const extras = [];
+      row.querySelectorAll('.f-extras-list .chan-row').forEach((cr) => {
+        extras.push(cr.querySelector('select').value + ' at ' + cr.querySelector('input').value);
+      });
+      if (extras.length) what += ' + ' + extras.join(' + ');
+      const lo = q('.f-stroke-min').value, hi = q('.f-stroke-max').value;
+      if (lo !== '' && hi !== '') what += ', stroke ' + lo + '–' + hi + '%';
+      if (!q('.f-stop-prev').checked) what += ' (stacks on the running command)';
+    }
+    const dur = mode === 'positions' ? '' : ' for ' + (q('.f-secs').value || '0') + 's';
+    row.querySelector('.rule-summary').textContent = range + ' ' + unit + ' → ' + what + dur;
+  }
+
+  function advDetails(row, r) {
+    const det = document.createElement('details');
+    det.className = 'rule-adv';
+    det.dataset.for = 'function pattern';
+    const sum = document.createElement('summary');
+    sum.textContent = 'Advanced options';
+    det.appendChild(sum);
+    const body = document.createElement('div');
+    body.className = 'rule-adv-body';
+    body.appendChild(modeWrap('function',
+      ruleField('stroke from % (Solace Pro)', classed(numInput(r.stroke_min, '0-100'), 'f-stroke-min'))));
+    body.appendChild(modeWrap('function',
+      ruleField('stroke to %', classed(numInput(r.stroke_max, '0-100'), 'f-stroke-max'))));
+    const stopPrev = document.createElement('input');
+    stopPrev.type = 'checkbox';
+    stopPrev.className = 'f-stop-prev';
+    stopPrev.checked = r.stop_previous !== false;
+    stopPrev.title = 'uncheck to stack this on top of the running command';
+    body.appendChild(modeWrap('function', ruleField('stop the previous command', stopPrev)));
+    body.appendChild(modeWrap('function',
+      ruleField('pulse on (s)', classed(numInput(r.loop_running_s, 'optional'), 'f-loop-run'))));
+    body.appendChild(modeWrap('function',
+      ruleField('pulse off (s)', classed(numInput(r.loop_pause_s, 'optional'), 'f-loop-pause'))));
+    body.appendChild(modeWrap('function pattern', extrasEditor(r.extra_actions)));
+    det.appendChild(body);
+    row.appendChild(det);
+  }
+
+  function collectStroke(row, action, name) {
+    // Solace Pro travel range; empty = full stroke (no Stroke command).
+    const lo = row.querySelector('.f-stroke-min').value;
+    const hi = row.querySelector('.f-stroke-max').value;
+    if (lo === '' && hi === '') return { stroke_min: null, stroke_max: null };
+    const a = parseInt(lo, 10), b = parseInt(hi, 10);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b > 100 || a >= b)
+      throw new Error('rule "' + name + '": stroke range must be 0-100 with min < max');
+    if (b - a < 20)
+      throw new Error('rule "' + name + '": stroke range must span at least 20 (Lovense ignores less)');
+    if (action !== 'Thrusting')
+      throw new Error('rule "' + name + '": stroke range only applies to Thrusting rules');
+    return { stroke_min: a, stroke_max: b };
+  }
+  function collectExtras(row, name) {
+    const out = [];
+    row.querySelectorAll('.f-extras-list .chan-row').forEach((cr) => {
+      const s = parseInt(cr.querySelector('input').value, 10);
+      if (!Number.isFinite(s) || s < 0 || s > 20)
+        throw new Error('rule "' + name + '": channel strength must be 0-20');
+      out.push({ action: cr.querySelector('select').value, strength: s });
+    });
+    return { extra_actions: out };
+  }
+  function optSecs(row, sel) {
+    const v = row.querySelector(sel).value;
+    return v === '' ? null : parseFloat(v);
+  }
+  function collectMode(row, action, name) {
+    const mode = row.querySelector('.f-mode').value;
+    if (mode === 'preset') return { preset: row.querySelector('.f-preset').value };
+    if (mode === 'pattern') {
+      const steps = row.querySelector('.f-pattern').value
+        .split(/[;,]+/).map((x) => x.trim()).filter(Boolean).map((x) => parseInt(x, 10));
+      if (!steps.length || steps.some((s) => !Number.isFinite(s) || s < 0 || s > 20))
+        throw new Error('rule "' + name + '": pattern steps must be ints 0-20');
+      if (steps.length > 50)
+        throw new Error('rule "' + name + '": pattern is capped at 50 steps');
+      const interval = parseInt(row.querySelector('.f-interval').value, 10);
+      if (!Number.isFinite(interval) || interval < 100)
+        throw new Error('rule "' + name + '": pattern interval must be >= 100 ms');
+      return {
+        pattern: steps, pattern_interval_ms: interval, ...collectExtras(row, name),
+      };
+    }
+    if (mode === 'positions') {
+      const kf = row.querySelector('.f-positions').value
+        .split(',').map((x) => x.trim()).filter(Boolean)
+        .map((pair) => {
+          const [ts, pos] = pair.split(':').map((x) => parseInt(x && x.trim(), 10));
+          if (!Number.isFinite(ts) || !Number.isFinite(pos) || ts < 0 || pos < 0 || pos > 100)
+            throw new Error('rule "' + name + '": keyframes must be ts:pos (pos 0-100)');
+          return { ts, pos };
+        });
+      if (!kf.length)
+        throw new Error('rule "' + name + '": add at least one ts:pos keyframe');
+      for (let i = 1; i < kf.length; i++)
+        if (kf[i].ts <= kf[i - 1].ts)
+          throw new Error('rule "' + name + '": keyframe timestamps must increase');
+      return { positions: kf };
+    }
+    return {
+      ...collectStroke(row, action, name),
+      ...collectExtras(row, name),
+      stop_previous: row.querySelector('.f-stop-prev').checked,
+      loop_running_s: optSecs(row, '.f-loop-run'),
+      loop_pause_s: optSecs(row, '.f-loop-pause'),
+    };
+  }
+
+  function buildCard(r, kind) {
+    const isTip = kind === 'tip';
+    const row = document.createElement('div');
+    row.className = 'rule-row ' + kind;
+    row.dataset.unit = isTip ? 'sats' : 'tokens';
+
+    const head = document.createElement('div');
+    head.className = 'rc-head';
+    head.appendChild(classed(textInput(r.name, 'rule name — e.g. big buzz'), 'f-name'));
+    head.appendChild(ruleDel(row));
+    row.appendChild(head);
+
+    const minVal = isTip ? (r.min_sats != null ? r.min_sats : 0)
+      : (r.min_amount != null ? r.min_amount : 1);
+    const maxVal = uncapped(isTip ? r.max_sats : r.max_amount);
+    row.appendChild(sentence([
+      'When a tip is between',
+      classed(numInput(minVal), 'f-min'),
+      'and',
+      classed(numInput(maxVal, 'no cap'), 'f-max'),
+      isTip ? 'sats' : 'token units',
+    ]));
+    row.appendChild(rcHint('',
+      'leave "and" empty for no upper limit — the highest matching tier wins'));
+
+    const modeSel = modeSelectEl(ruleMode(r));
+    modeSel.addEventListener('change', () => { applyMode(row); updateSummary(row); });
+    const doLine = sentence(['run', modeSel]);
+    const actionWrap = modeSpan('function pattern');
+    actionWrap.appendChild(classed(actionSelect(r.action), 'f-action'));
+    doLine.appendChild(actionWrap);
+    const strengthWrap = modeSpan('function');
+    strengthWrap.appendChild(document.createTextNode(' at strength '));
+    strengthWrap.appendChild(strengthSlider(r.strength));
+    doLine.appendChild(strengthWrap);
+    const presetWrap = modeSpan('preset');
+    presetWrap.appendChild(presetPills(r.preset));
+    doLine.appendChild(presetWrap);
+    const patternWrap = modeSpan('pattern');
+    patternWrap.appendChild(document.createTextNode(' with steps '));
+    patternWrap.appendChild(
+      classed(textInput((r.pattern || []).join(';'), '20;20;5;20;10'), 'f-pattern'));
+    patternWrap.appendChild(document.createTextNode(' every '));
+    patternWrap.appendChild(classed(
+      numInput(r.pattern_interval_ms != null ? r.pattern_interval_ms : 1000), 'f-interval'));
+    patternWrap.appendChild(document.createTextNode(' ms'));
+    doLine.appendChild(patternWrap);
+    const posWrap = modeSpan('positions');
+    posWrap.appendChild(document.createTextNode(' through keyframes '));
+    posWrap.appendChild(classed(textInput(
+      (r.positions || []).map((p) => p.ts + ':' + p.pos).join(', '),
+      '0:10, 500:90'), 'f-positions'));
+    doLine.appendChild(posWrap);
+    row.appendChild(doLine);
+    row.appendChild(rcHint('function',
+      'strength 0–20 — Pump and Depth top out at 3 on the toy itself'));
+    row.appendChild(rcHint('pattern',
+      'semicolon-separated strengths 0–20, up to 50 steps'));
+    row.appendChild(rcHint('positions',
+      'milliseconds:position (0–100) pairs — the stroker glides between them'));
+
+    const secsWrap = modeSpan('function preset pattern');
+    secsWrap.appendChild(document.createTextNode('for '));
+    secsWrap.appendChild(
+      classed(numInput(r.duration_s != null ? r.duration_s : 5), 'f-secs'));
+    secsWrap.appendChild(document.createTextNode(' seconds'));
+    const tail = sentence([secsWrap, 'on', classed(textInput(r.toy, 'all toys'), 'f-toy')]);
+    if (!isTip) {
+      const confWrap = document.createElement('span');
+      const conf = document.createElement('input');
+      conf.type = 'checkbox';
+      conf.className = 'f-conf';
+      conf.checked = r.require_conf !== false;
+      confWrap.appendChild(conf);
+      confWrap.appendChild(document.createTextNode(' wait for 1 confirmation'));
+      tail.appendChild(confWrap);
+    }
+    row.appendChild(tail);
+    row.appendChild(rcHint('positions',
+      'positions run to the last keyframe — no duration needed'));
+
+    advDetails(row, r);
+
+    const sumEl = document.createElement('div');
+    sumEl.className = 'rule-summary';
+    row.appendChild(sumEl);
+    row.addEventListener('input', () => updateSummary(row));
+    row.addEventListener('change', () => updateSummary(row));
+    return row;
+  }
 
   function addTipRule(r) {
     r = r || {};
-    const row = document.createElement('div');
-    row.className = 'rule-row tip';
-    row.appendChild(ruleField('name', textInput(r.name, 'e.g. big buzz')));
-    row.appendChild(ruleField('min sats', numInput(r.min_sats != null ? r.min_sats : 0)));
-    row.appendChild(ruleField('max sats', numInput(uncapped(r.max_sats), 'no cap')));
-    row.appendChild(ruleField('action', actionSelect(r.action)));
-    row.appendChild(ruleField('strength', numInput(r.strength != null ? r.strength : 5)));
-    row.appendChild(ruleField('secs', numInput(r.duration_s != null ? r.duration_s : 5)));
-    row.appendChild(ruleField('toy', textInput(r.toy, 'all')));
-    row.appendChild(ruleDel(row));
+    const row = buildCard(r, 'tip');
     rulesEditor.appendChild(row);
+    applyMode(row);
+    updateSummary(row);
   }
 
   function addTokenRule(r) {
     r = r || {};
-    const row = document.createElement('div');
-    row.className = 'rule-row token';
-    const nameIn = textInput(r.name, 'e.g. fan token');
-    const catIn = textInput(r.category, 'token category id');
-    const catWrap = ruleField('category (64 hex)', catIn);
+    const row = buildCard(r, 'token');
+    const nameIn = row.querySelector('.f-name');
+    nameIn.placeholder = 'rule name — e.g. fan token';
+    const catIn = classed(textInput(r.category, 'token category id (64 hex)'), 'f-category');
     const meta = document.createElement('div');
     meta.className = 'token-meta';
-    catWrap.appendChild(meta);
-    row.appendChild(ruleField('name', nameIn));
-    row.appendChild(catWrap);
+    const catLine = sentence(['for the token', catIn]);
+    catLine.appendChild(meta);
+    row.insertBefore(catLine, row.children[1]);
     async function lookupMeta() {
       const cat = catIn.value.trim().toLowerCase();
       meta.textContent = '';
@@ -728,52 +1122,45 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
     catIn.addEventListener('change', lookupMeta);
     if (r.category) lookupMeta();
-    row.appendChild(ruleField('min amount', numInput(r.min_amount != null ? r.min_amount : 1)));
-    row.appendChild(ruleField('max amount', numInput(uncapped(r.max_amount), 'no cap')));
-    row.appendChild(ruleField('action', actionSelect(r.action)));
-    row.appendChild(ruleField('strength', numInput(r.strength != null ? r.strength : 5)));
-    row.appendChild(ruleField('secs', numInput(r.duration_s != null ? r.duration_s : 5)));
-    row.appendChild(ruleField('toy', textInput(r.toy, 'all')));
-    const conf = document.createElement('input');
-    conf.type = 'checkbox';
-    conf.checked = r.require_conf !== false;
-    conf.title = 'wait for one confirmation';
-    row.appendChild(ruleField('conf', conf));
-    row.appendChild(ruleDel(row));
     tokenRulesEditor.appendChild(row);
+    applyMode(row);
+    updateSummary(row);
   }
 
   document.getElementById('add-rule').addEventListener('click', () => addTipRule());
   document.getElementById('add-token-rule').addEventListener('click', () => addTokenRule());
 
-  function rowInputs(row) { return row.querySelectorAll('input'); }
-
   function collectTipRules() {
     const rules = [];
     rulesEditor.querySelectorAll('.rule-row').forEach((row, idx) => {
-      const inputs = rowInputs(row);
-      const name = inputs[0].value.trim() || 'rule ' + (idx + 1);
-      const minSats = parseInt(inputs[1].value, 10);
+      const name = row.querySelector('.f-name').value.trim() || 'rule ' + (idx + 1);
+      const minSats = parseInt(row.querySelector('.f-min').value, 10);
       if (!Number.isFinite(minSats) || minSats < 0)
         throw new Error('rule "' + name + '": min sats must be a number >= 0');
-      const maxSats = inputs[2].value === '' ? NO_CAP : parseInt(inputs[2].value, 10);
+      const maxRaw = row.querySelector('.f-max').value;
+      const maxSats = maxRaw === '' ? NO_CAP : parseInt(maxRaw, 10);
       if (!Number.isFinite(maxSats) || maxSats < minSats)
         throw new Error('rule "' + name + '": max sats must be >= min sats');
-      const strength = parseInt(inputs[3].value, 10);
-      if (!Number.isFinite(strength) || strength < 0 || strength > 20)
-        throw new Error('rule "' + name + '": strength must be 0-20');
-      const duration = parseFloat(inputs[4].value);
+      const duration = parseFloat(row.querySelector('.f-secs').value);
       if (!Number.isFinite(duration) || duration < 0)
         throw new Error('rule "' + name + '": duration must be a number >= 0');
-      rules.push({
+      const mode = row.querySelector('.f-mode').value;
+      const rule = {
         name,
         min_sats: minSats,
         max_sats: maxSats,
-        action: row.querySelector('select').value,
-        strength,
         duration_s: duration,
-        toy: inputs[5].value.trim() || null,
-      });
+        toy: row.querySelector('.f-toy').value.trim() || null,
+      };
+      if (mode === 'function' || mode === 'pattern')
+        rule.action = row.querySelector('.f-action').value;
+      if (mode === 'function') {
+        const strength = parseInt(row.querySelector('.f-strength').value, 10);
+        if (!Number.isFinite(strength) || strength < 0 || strength > 20)
+          throw new Error('rule "' + name + '": strength must be 0-20');
+        rule.strength = strength;
+      }
+      rules.push({ ...rule, ...collectMode(row, rule.action || 'Vibrate', name) });
     });
     return rules;
   }
@@ -781,34 +1168,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   function collectTokenRules() {
     const rules = [];
     tokenRulesEditor.querySelectorAll('.rule-row').forEach((row, idx) => {
-      const inputs = rowInputs(row);
-      const name = inputs[0].value.trim() || 'token rule ' + (idx + 1);
-      const category = inputs[1].value.trim().toLowerCase();
+      const name = row.querySelector('.f-name').value.trim() || 'token rule ' + (idx + 1);
+      const category = row.querySelector('.f-category').value.trim().toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(category))
         throw new Error('rule "' + name + '": category must be 64 hex chars');
-      const minAmount = parseInt(inputs[2].value, 10);
+      const minAmount = parseInt(row.querySelector('.f-min').value, 10);
       if (!Number.isFinite(minAmount) || minAmount < 1)
         throw new Error('rule "' + name + '": min amount must be a number >= 1');
-      const maxAmount = inputs[3].value === '' ? NO_CAP : parseInt(inputs[3].value, 10);
+      const maxRaw = row.querySelector('.f-max').value;
+      const maxAmount = maxRaw === '' ? NO_CAP : parseInt(maxRaw, 10);
       if (!Number.isFinite(maxAmount) || maxAmount < minAmount)
         throw new Error('rule "' + name + '": max amount must be >= min amount');
-      const strength = parseInt(inputs[4].value, 10);
-      if (!Number.isFinite(strength) || strength < 0 || strength > 20)
-        throw new Error('rule "' + name + '": strength must be 0-20');
-      const duration = parseFloat(inputs[5].value);
+      const duration = parseFloat(row.querySelector('.f-secs').value);
       if (!Number.isFinite(duration) || duration < 0)
         throw new Error('rule "' + name + '": duration must be a number >= 0');
-      rules.push({
+      const mode = row.querySelector('.f-mode').value;
+      const rule = {
         name,
         category,
         min_amount: minAmount,
         max_amount: maxAmount,
-        require_conf: inputs[7].checked,
-        action: row.querySelector('select').value,
-        strength,
+        require_conf: row.querySelector('.f-conf').checked,
         duration_s: duration,
-        toy: inputs[6].value.trim() || null,
-      });
+        toy: row.querySelector('.f-toy').value.trim() || null,
+      };
+      if (mode === 'function' || mode === 'pattern')
+        rule.action = row.querySelector('.f-action').value;
+      if (mode === 'function') {
+        const strength = parseInt(row.querySelector('.f-strength').value, 10);
+        if (!Number.isFinite(strength) || strength < 0 || strength > 20)
+          throw new Error('rule "' + name + '": strength must be 0-20');
+        rule.strength = strength;
+      }
+      rules.push({ ...rule, ...collectMode(row, rule.action || 'Vibrate', name) });
     });
     return rules;
   }

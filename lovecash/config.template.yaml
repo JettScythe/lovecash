@@ -111,6 +111,26 @@ server:
     goal_sats: null # set a satoshi target to show a goal progress bar
     accent: "#ff5c8a" # overlay accent color
 
+# Tip rules: the highest min_sats tier a tip qualifies for wins.
+# action is one of: Vibrate, Thrusting, Rotate, Pump, Depth, Oscillate,
+# Fingering, Suction, All (All drives every channel of a multi-function
+# toy at once). Pump/Depth cap at strength 3 — hardware ceiling.
+#
+# Advanced rule fields (all optional):
+#   extra_actions: [{action: Rotate, strength: 5}]  # more channels at once
+#   stop_previous: false        # stack on the running command instead of
+#                               # replacing it (default true)
+#   loop_running_s / loop_pause_s  # pulse on/off for the whole duration
+#   stroke_min / stroke_max     # Solace Pro travel range 0-100, span >= 20,
+#                               # Thrusting rules only
+#   preset: pulse               # wave / fireworks / earthquake — a named
+#                               # app pattern instead of action/strength
+#   pattern: [20,20,5,20,10]    # strength steps (0-20, <= 50), one per
+#   pattern_interval_ms: 1000   # interval (>= 100)
+#   positions: [{ts: 0, pos: 10}, {ts: 500, pos: 90}]  # Solace Pro
+#                               # PatternV2: ts ms (strictly increasing),
+#                               # pos 0-100
+# preset, pattern and positions are mutually exclusive.
 {{ rules }}
 
 # --- Phase 3: covenant goal show (optional) ---
