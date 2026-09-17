@@ -127,6 +127,19 @@ official Lovense documentation for the action list and strength ranges.
   Socket API transport + toy-event triggers + PatternV2 SyncTime — the
   one Lovense capability area deliberately not in this branch.
 
+### Dashboard UX redesign (user feedback: "unintuitive as fuck")
+
+- `lovecash/server/ui/dashboard.py` — rule rows replaced by
+  plain-language cards: "When a tip is between [1000] and [10000] sats →
+  run [Function ▾] [Vibrate ▾] at strength [slider] for [5] seconds on
+  [toy]". Strength is a slider with live readout; presets are pill
+  buttons; mode-specific hint lines; a live human-readable summary strip
+  ("1000–9999 sats → Vibrate at 12 + Rotate at 6 for 8s") updates on
+  every edit; stroke/loop/stop-previous/extra channels moved into a
+  collapsed "Advanced options" <details>. Collect logic unchanged
+  (class-based). Smoke-checked: /dashboard serves 200 with the new
+  markup; JS node --check OK.
+
 ## Commands run
 
 - `uv run python -m compileall lovecash tests`
