@@ -273,7 +273,8 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 if settings.goal_show
                 else None
             ),
-            "price_usd": orchestrator.current_price_usd(),            "stats": stats.snapshot(),
+            "price_usd": orchestrator.current_price_usd(),
+            "stats": stats.snapshot(),
             "alerts": alerts.model_dump(),
         }
 
@@ -420,7 +421,9 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
 
     @app.get("/api/token_meta")
     async def api_token_meta(
-        category: str = Query(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"),
+        category: str = Query(
+            min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"
+        ),
     ) -> dict:
         """BCMR metadata (name/symbol/decimals) for a token category, so the
         dashboard can show performers a token NAME instead of raw hex.
@@ -537,14 +540,19 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             outputs = parse_tx(raw)
             genesis_category, genesis_vout = tx_input0_outpoint(raw)
         except TokenParseError as exc:
-            raise HTTPException(status_code=400, detail=f"tx does not parse: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=f"tx does not parse: {exc}"
+            ) from exc
         for out in outputs:
             if out.token is not None and (
                 out.token.category != genesis_category or genesis_vout != 0
             ):
                 log.warning(
                     "broadcast refused: token category %s vs genesis %s (vout %d); tx=%s",
-                    out.token.category, genesis_category, genesis_vout, body.tx_hex,
+                    out.token.category,
+                    genesis_category,
+                    genesis_vout,
+                    body.tx_hex,
                 )
                 raise HTTPException(
                     status_code=400,
@@ -559,7 +567,9 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
             txid = await orchestrator.broadcast_tx(body.tx_hex)
         except Exception as exc:
             log.warning("node rejected broadcast: %s; tx=%s", exc, body.tx_hex)
-            raise HTTPException(status_code=502, detail=f"node rejected: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"node rejected: {exc}"
+            ) from exc
         return {"ok": True, "txid": txid}
 
     @app.post("/api/goal_show", dependencies=[Depends(auth)])

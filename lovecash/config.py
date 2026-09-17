@@ -146,7 +146,9 @@ class GoalShowConfig(BaseModel):
     address: str  # covenant token-aware P2SH32 cashaddr
     goal_sats: int = Field(ge=MIN_GOAL_SATS)
     deadline: int = Field(ge=0)  # covenant deadline (block height/time)
-    performer_pkh: str = ""  # 40-hex hash160 — enables auto-claim + client-side covenant rebuild
+    performer_pkh: str = (
+        ""  # 40-hex hash160 — enables auto-claim + client-side covenant rebuild
+    )
 
     @field_validator("performer_pkh")
     @classmethod
@@ -173,7 +175,7 @@ def _drop_env_overridden(data: dict, prefix: str, delimiter: str = "__") -> None
     for var in os.environ:
         if not var.startswith(prefix):
             continue
-        parts = [p.lower() for p in var[len(prefix):].split(delimiter) if p]
+        parts = [p.lower() for p in var[len(prefix) :].split(delimiter) if p]
         node = data
         for part in parts[:-1]:
             child = node.get(part)
