@@ -738,8 +738,8 @@ this relay <span class="no">✗ no keys</span> <span class="ok">✓ can only see
 </script>
 <script type="module">
   // Covenant pledge flow (goal show). The bundle self-checks /api/goal_pot
-  // and stays hidden unless a WalletConnect project id is configured, so the
-  // read-only bar above is unchanged for unconfigured relays.
+  // and only activates when a goal show is configured, so the read-only
+  // bar above is unchanged for unconfigured relays.
   import("/static/pledge.bundle.js").then(function () {
     if (window.LovecashPledge) {
       window.LovecashPledge.init(document.getElementById("goalpot"));

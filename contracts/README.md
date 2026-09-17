@@ -9,8 +9,8 @@ is met (permissionless — lovecash auto-broadcasts it, see `lovecash/bch/goalsh
 `refund()` pays a pledger back after the deadline if the goal was missed (argless: the
 receipt's own P2PKH input proves ownership; the payout is locked to the committed pkh).
 
-Viewer pledge flow: browser bundle talks to Cashonize via **WizardConnect** (Nostr relay,
-no WalletConnect project id). After any contract change: `npm run build-web` (docker) then
+Viewer pledge flow: browser bundle talks to Cashonize via **WizardConnect** (Nostr relay).
+After any contract change: `npm run build-web` (docker) then
 `cp contracts/web-dist/pledge.bundle.js lovecash/server/ui/static/pledge.bundle.js`.
 Refunds run through the same bundle: it lists the viewer's receipt NFTs and builds the
 refund tx (only the receipt input needs the wallet's signature).

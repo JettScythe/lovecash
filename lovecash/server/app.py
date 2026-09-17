@@ -323,7 +323,7 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         data: str = Query(min_length=1, max_length=512),
         scale: int = Query(default=8, ge=1, le=20),
     ) -> Response:
-        """Generic QR for opaque data (WalletConnect pairing URI)."""
+        """Generic QR for opaque data (WizardConnect pairing URI)."""
         return Response(content=qr_png(data, scale), media_type="image/png")
 
     @app.get("/qr.png")
