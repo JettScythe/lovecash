@@ -41,7 +41,8 @@ def _prompt_action(label: str):
 
     while True:
         raw = typer.prompt(
-            f"{label} (Vibrate / Thrusting / Rotate / Pump / Depth)",
+            f"{label} (Vibrate / Thrusting / Rotate / Pump / Depth / "
+            "Oscillate / Fingering / Suction / All)",
             default="Vibrate",
         )
         try:
