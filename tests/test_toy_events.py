@@ -556,3 +556,98 @@ async def test_payment_path_unchanged(orch_and_ctrl):
 def test_socket_url_override():
     cfg = LovenseConfig(events_url="ws://192.168.1.5:20010/v1")
     assert LovenseEventSocket.url_for(cfg) == "ws://192.168.1.5:20010/v1"
+
+
+# --- Final review fixes ----------------------------------------------------
+
+def test_parse_event_survives_bad_shapes():
+    """Valid JSON with wrong shapes must not raise — the Lovense app's
+    frame schema isn't ours, and a bad frame must never kill the app."""
+    assert parse_event({"type": "depth-changed", "toyId": "t1", "data": "oops"}) == []
+    assert (
+        parse_event(
+            {"type": "battery-changed", "toyId": "t1", "data": {"value": "high"}}
+        )
+        == []
+    )
+    assert (
+        parse_event(
+            {
+                "type": "motion-changed",
+                "toyId": "t1",
+                "data": {"motionData": [{"speed": "fast"}]},
+            }
+        )
+        == []
+    )
+    assert (
+        parse_event({"type": "toy-list", "toyList": [{"id": "t1", "battery": "high"}]})
+        == []
+    )
+    assert parse_event({"type": "toy-list", "toyList": "oops"}) == []
+
+
+async def test_source_survives_bad_frames():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    triggers = []
+
+    async def emit(ev):
+        triggers.append(ev)
+
+    source = ToyEventSource(LovenseConfig(), connect=connect)
+    ws.feed({"type": "depth-changed", "toyId": "t1", "data": "oops"})
+    ws.feed({"type": "shake", "toyId": "t1"})
+    runner = asyncio.create_task(source.run(emit))
+    await _wait_for(lambda: len(triggers) == 1)
+    await source.close()
+    runner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await runner
+    assert triggers[0].event is ToyEventKind.SHAKE
+
+
+def test_resolve_event_fires_all_shake_rules_per_target():
+    """Shake/button rules have no band (all min_value=0) — tiering can't
+    apply, so every matching rule fires. Collapsing them would be dead
+    config that looks configured."""
+    engine = RulesEngine(
+        [],
+        event_rules=[
+            EventRule(
+                name="buzz", event=ToyEventKind.SHAKE, action=Action.VIBRATE,
+                strength=5, duration_s=2, toy="t1",
+            ),
+            EventRule(
+                name="wave", event=ToyEventKind.SHAKE, action=Action.ROTATE,
+                strength=5, duration_s=2, toy="t1",
+            ),
+        ],
+    )
+    fired = engine.resolve_event(
+        ToyEventTrigger(event=ToyEventKind.SHAKE, toy_id="src")
+    )
+    assert len(fired) == 2
+    assert {c.action for c, _ in fired} == {Action.VIBRATE, Action.ROTATE}
+
+
+async def test_socket_backoff_resets_only_after_real_event():
+    """event-closed (game mode off) must back off toward the cap, not
+    settle into a fixed 1 Hz reconnect loop."""
+    sockets = [FakeSocket() for _ in range(4)]
+    connect, _ = _factory(sockets)
+    delays = []
+
+    async def fake_sleep(s):
+        delays.append(s)
+
+    sock = LovenseEventSocket(
+        LovenseConfig(), connect=connect, backoff_max=10, sleep=fake_sleep
+    )
+    for ws in sockets[:3]:
+        ws.feed({"type": "event-closed"})
+    sockets[3].feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
+    assert delays == [1.0, 2.0, 4.0]
+    await gen.aclose()

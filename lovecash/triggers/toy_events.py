@@ -4,6 +4,8 @@ triggers (rule-able events) and status updates (dashboard-facing)."""
 import logging
 from collections.abc import Awaitable, Callable
 
+from pydantic import ValidationError
+
 from lovecash.config import LovenseConfig
 from lovecash.lovense.eventsocket import LovenseEventSocket
 from lovecash.models import ToyEventKind
@@ -23,12 +25,25 @@ _KIND_MAP = {
 
 
 def parse_event(msg: dict) -> list[ToyEventTrigger | ToyStatus]:
+    """Defensive wrapper: the Lovense app's frame schema isn't ours, and
+    one odd-but-valid-JSON frame must never kill the consumer loop (a
+    dead source task shuts the whole orchestrator down)."""
+    try:
+        return _parse_event(msg)
+    except (ValidationError, AttributeError, TypeError, KeyError) as exc:
+        log.warning("ignoring malformed event frame: %s", exc)
+        return []
+
+
+def _parse_event(msg: dict) -> list[ToyEventTrigger | ToyStatus]:
     """Map one socket frame to triggers/statuses. [] for ignored frames
     (button-down/up, strength/shake-frequency changes) and malformed
-    payloads — a bad frame must never kill the consumer loop."""
+    payloads."""
     mtype = msg.get("type")
     toy_id = msg.get("toyId")
     data = msg.get("data") or {}
+    if not isinstance(data, dict):
+        return []
 
     if mtype == "toy-list":
         return [
@@ -89,11 +104,17 @@ class ToyEventSource(TriggerSource):
 
     async def run(self, emit: EmitFn) -> None:
         async for msg in self._socket.events():
-            for parsed in parse_event(msg):
-                if isinstance(parsed, ToyEventTrigger):
-                    await emit(parsed)
+            try:
+                parsed = parse_event(msg)
+            except Exception as exc:  # last-resort net: a dead source
+                # task shuts the whole orchestrator (incl. tips) down
+                log.warning("event frame handling failed: %s", exc)
+                continue
+            for p in parsed:
+                if isinstance(p, ToyEventTrigger):
+                    await emit(p)
                 elif self._on_status is not None:
-                    await self._on_status(parsed)
+                    await self._on_status(p)
 
     async def close(self) -> None:
         await self._socket.close()

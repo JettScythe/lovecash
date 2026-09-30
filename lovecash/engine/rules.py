@@ -57,11 +57,14 @@ class RulesEngine:
         return out
 
     def resolve_event(self, event) -> list[tuple[ToyCommand, str | None]]:
-        """Best-matching event rule PER target toy. Shake/button rules
-        fire per matching event; depth/motion rules fire on the RISING
-        EDGE into their band (value must leave the band before the rule
-        can fire again — a sweeping sensor doesn't spam commands)."""
+        """Best-matching event rule PER target toy for banded events
+        (depth/motion tiers: highest min_value wins). Shake/button rules
+        carry no band, so tiering can't apply — EVERY matching rule
+        fires; collapsing them would be dead config that looks
+        configured. Depth/motion rules fire on the RISING EDGE into
+        their band (value must leave before the rule can fire again)."""
         best: dict[str | None, EventRule] = {}
+        out: list[tuple[ToyCommand, str | None]] = []
         for i, r in enumerate(self._event_rules):
             if r.event is not event.event:
                 continue
@@ -70,21 +73,21 @@ class RulesEngine:
             if r.button_index is not None and event.button_index != r.button_index:
                 continue
             if r.event in (ToyEventKind.SHAKE, ToyEventKind.BUTTON_PRESSED):
-                fires = True
-            else:
-                in_band = (
-                    event.value is not None
-                    and r.min_value <= event.value <= r.max_value
-                )
-                key = (i, event.toy_id)
-                fires = in_band and not self._event_edge.get(key, False)
-                self._event_edge[key] = in_band
+                out.append((r.to_command(), r.toy))
+                continue
+            in_band = (
+                event.value is not None
+                and r.min_value <= event.value <= r.max_value
+            )
+            key = (i, event.toy_id)
+            fires = in_band and not self._event_edge.get(key, False)
+            self._event_edge[key] = in_band
             if not fires:
                 continue
             cur = best.get(r.toy)
             if cur is None or r.min_value > cur.min_value:
                 best[r.toy] = r
-        out = [(r.to_command(), r.toy) for r in best.values()]
+        out += [(r.to_command(), r.toy) for r in best.values()]
         if out:
             log.info(
                 "Toy event %s from %s matched %d rule(s)",

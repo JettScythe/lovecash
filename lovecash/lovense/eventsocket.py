@@ -88,7 +88,6 @@ class LovenseEventSocket:
             try:
                 async with self._connect(url) as ws:
                     self._ws = ws
-                    delay = min(1.0, self._backoff_max)
                     await ws.send(
                         json.dumps(
                             {"type": "access", "data": {"appName": self._app_name}}
@@ -114,6 +113,11 @@ class LovenseEventSocket:
                                 )
                                 break
                             else:
+                                # A live event stream proves stability —
+                                # reset backoff HERE, not on connect, or a
+                                # game-mode-off app (instant event-closed)
+                                # pins us in a fixed 1s reconnect loop.
+                                delay = min(1.0, self._backoff_max)
                                 yield msg
                     finally:
                         pinger.cancel()
