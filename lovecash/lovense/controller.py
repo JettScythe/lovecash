@@ -6,6 +6,7 @@ from lovecash.config import Limits, LovenseConfig
 from lovecash.models import (
     PATTERN_FEATURE_LETTER,
     ActionSpec,
+    PositionStep,
     ToyCommand,
     action_max_strength,
 )
@@ -52,11 +53,24 @@ class LovenseController:
         def clamp_strength(action, strength: int) -> int:
             return min(strength, self._limits.max_strength, action_max_strength(action))
 
+        positions = cmd.positions
+        if positions is not None:
+            # PatternV2 sends no timeSec — the keyframe timeline IS the
+            # duration, so it must be cut at the performer cap here or a
+            # tip rule could run for hours past max_duration_s. Dropping
+            # trailing steps keeps timestamps strictly increasing; the
+            # fallback keeps the model's >=1-keyframe guarantee.
+            cap_ms = self._limits.max_duration_s * 1000
+            positions = [p for p in positions if p.ts <= cap_ms] or [
+                PositionStep(ts=0, pos=positions[0].pos)
+            ]
+
         return ToyCommand(
             **{
                 **cmd._command_payload(),
                 "strength": clamp_strength(cmd.action, cmd.strength),
                 "duration_s": min(cmd.duration_s, self._limits.max_duration_s),
+                "positions": positions,
                 "extra_actions": [
                     ActionSpec(
                         action=s.action,
@@ -140,51 +154,19 @@ class LovenseController:
             log.error("Toy command failed: %s", exc)
             return False
 
-    async def set_position(self, value: int) -> bool:
-        """Solace Pro real-time stroker position (0-100).
-
-        For live control loops, not tip rules — tip-driven position
-        patterns belong in a rule's `positions` (PatternV2 InitPlay).
-        """
-        if not 0 <= value <= 100:
-            raise ValueError("position must be 0-100")
-        if not await self._safety.allow():
-            return False
-        payload: dict = {
-            "command": "Position",
-            "value": str(value),
-            "apiVer": 1,
-        }
-        if self._toy_id and self._toy_id != "default":
-            payload["toy"] = self._toy_id
-        try:
-            resp = await self._client.post(f"{self._base}/command", json=payload)
-            resp.raise_for_status()
-            return True
-        except httpx.HTTPError as exc:
-            log.error("Position command failed: %s", exc)
-            return False
-
     async def stop_all(self) -> None:
         """Force-stop the device. Always attempted regardless of safety.
 
         Sends PatternV2 Stop as well as Function Stop — a running
         position pattern does not answer to Function:Stop, and the panic
-        stop must halt EVERYTHING.
+        stop must halt EVERYTHING. Each stop gets its own try: a
+        transport error on one must not skip the other.
         """
-        try:
-            await self._client.post(
-                f"{self._base}/command",
-                json={"command": "PatternV2", "type": "Stop", "apiVer": 1},
-            )
-            await self._client.post(
-                f"{self._base}/command",
-                json={
-                    "command": "Function",
-                    "action": "Stop",
-                    "timeSec": 0,
-                    "apiVer": 1,
-                },
-            )
-        except httpx.HTTPError as exc:
-            log.error("Stop command failed: %s", exc)
+        for payload in (
+            {"command": "PatternV2", "type": "Stop", "apiVer": 1},
+            {"command": "Function", "action": "Stop", "timeSec": 0, "apiVer": 1},
+        ):
+            try:
+                await self._client.post(f"{self._base}/command", json=payload)
+            except httpx.HTTPError as exc:
+                log.error("Stop command failed: %s", exc)

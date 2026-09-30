@@ -122,9 +122,20 @@ class CommandFields(BaseModel):
         if sum(modes) > 1:
             raise ValueError("preset, pattern and positions are mutually exclusive")
         if any(modes) and (
-            self.stroke_min is not None or self.loop_running_s is not None
+            self.stroke_min is not None
+            or self.loop_running_s is not None
+            or self.loop_pause_s is not None
         ):
             raise ValueError("stroke/loop are Function-mode only")
+        if (self.loop_running_s is None) != (self.loop_pause_s is None):
+            # Lovense documents loopRunningSec/loopPauseSec as a pair;
+            # one alone is ignored — a dead rule that looks configured.
+            raise ValueError("loop_running_s and loop_pause_s together")
+        if self.pattern is not None and self.action == Action.STOP:
+            # Stop has no pattern feature letter, so F: would come out
+            # blank — which Lovense reads as ALL functions. Nonsense
+            # combo must not compile to "drive everything".
+            raise ValueError("Stop cannot drive a pattern")
         if self.pattern is not None:
             if not self.pattern:
                 raise ValueError("pattern must have at least one step")

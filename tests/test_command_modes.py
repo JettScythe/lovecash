@@ -2,6 +2,7 @@
 (multi-channel Function, stopPrevious, loop, Preset, Pattern,
 PatternV2 positions, Position) as wired by LovenseController."""
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -155,17 +156,54 @@ async def test_positions_mode_is_patternv2_initplay(controller):
     assert sent["actions"] == [{"ts": 0, "pos": 10}, {"ts": 500, "pos": 90}]
 
 
-async def test_set_position(controller):
-    assert await controller.set_position(38) is True
-    sent = controller._client.posts[-1]
-    assert sent == {"command": "Position", "value": "38", "apiVer": 1}
+async def test_positions_keyframes_clamped_to_max_duration(controller):
+    # fixture cap is max_duration_s=60 -> keyframes past 60_000 ms drop,
+    # or a tip rule's timeline would run past the performer's duration
+    # limit (PatternV2 sends no timeSec).
+    sent = await _run(
+        controller,
+        ToyCommand(
+            action=Action.THRUSTING,
+            strength=5,
+            duration_s=0,
+            positions=[
+                PositionStep(ts=0, pos=10),
+                PositionStep(ts=30_000, pos=90),
+                PositionStep(ts=90_000, pos=50),
+            ],
+        ),
+    )
+    assert sent["actions"] == [{"ts": 0, "pos": 10}, {"ts": 30_000, "pos": 90}]
 
 
-async def test_set_position_bounds_checked():
-    ctrl = LovenseController(LovenseConfig(), Limits(), SafetyState())
-    with pytest.raises(ValueError, match="0-100"):
-        await ctrl.set_position(101)
-    await ctrl.close()
+async def test_positions_first_keyframe_survives_cap(controller):
+    sent = await _run(
+        controller,
+        ToyCommand(
+            action=Action.THRUSTING,
+            strength=5,
+            duration_s=0,
+            positions=[PositionStep(ts=120_000, pos=42)],
+        ),
+    )
+    assert sent["actions"] == [{"ts": 0, "pos": 42}]
+
+
+async def test_stop_all_sends_function_stop_when_patternv2_fails(controller):
+    class FlakyFirstPostHttp(FakeHttp):
+        def __init__(self) -> None:
+            super().__init__()
+            self._calls = 0
+
+        async def post(self, url, json):  # noqa: A002 - matches httpx api
+            self._calls += 1
+            if self._calls == 1:
+                raise httpx.ConnectError("boom")
+            return await super().post(url, json)
+
+    controller._client = FlakyFirstPostHttp()
+    await controller.stop_all()
+    assert any(p.get("action") == "Stop" for p in controller._client.posts)
 
 
 async def test_stop_all_kills_patterns_too(controller):
@@ -203,6 +241,10 @@ async def test_stop_all_kills_patterns_too(controller):
             },
             "Function-mode only",
         ),
+        ({"pattern": [5], "loop_pause_s": 5}, "Function-mode only"),
+        ({"action": Action.STOP, "pattern": [5]}, "Stop cannot drive a pattern"),
+        ({"loop_running_s": 9}, "loop_running_s and loop_pause_s together"),
+        ({"loop_pause_s": 4}, "loop_running_s and loop_pause_s together"),
         ({"pattern": []}, "at least one step"),
         ({"pattern": [1] * 51}, "50 steps"),
         ({"pattern": [21]}, "0-20"),
