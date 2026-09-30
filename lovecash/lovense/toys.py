@@ -8,7 +8,9 @@ reports via /GetToys (e.g. "lush 3", "solace pro"); the confirmed
 entries (Solace line) follow exactly that convention.
 
 Hardware confirmation is still welcome — if a real unit reports a
-different name string than the key here, fix the key. Unknown toys fall
+different name string than the key here, fix the key. Confirmed on
+real units: Edge 2 reports as "edge", Gush 2 as "gush" — Lovense
+Connect drops the generation number over the local API. Unknown toys fall
 back to asking the action directly in `init`, so a missing entry is
 never a failure.
 
