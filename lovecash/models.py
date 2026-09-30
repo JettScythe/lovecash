@@ -7,6 +7,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class ToyEventKind(StrEnum):
+    """Rule-able Lovense Toy Events (game-mode /v1 socket). Status events
+    (toy-list, toy-status, battery-changed) are NOT here — they feed the
+    dashboard, never the rules engine."""
+
+    SHAKE = "shake"
+    BUTTON_PRESSED = "button-pressed"
+    DEPTH_CHANGED = "depth-changed"
+    MOTION_CHANGED = "motion-changed"
+
+
 class Action(StrEnum):
     VIBRATE = "Vibrate"
     THRUSTING = "Thrusting"

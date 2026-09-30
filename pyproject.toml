@@ -14,6 +14,7 @@ dependencies = [
   "segno>=1.6",             # pure-python QR, native PNG/SVG, no PIL
   "hdwallet>=2.2,<3",
   "gp-oracle",
+  "websockets>=16.0",
 ]
 
 [project.optional-dependencies]

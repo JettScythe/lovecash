@@ -500,6 +500,7 @@ dependencies = [
     { name = "rich" },
     { name = "segno" },
     { name = "typer" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -533,6 +534,7 @@ requires-dist = [
     { name = "segno", specifier = ">=1.6" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.31" },
+    { name = "websockets", specifier = ">=16.0" },
 ]
 provides-extras = ["server"]
 
