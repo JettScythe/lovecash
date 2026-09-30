@@ -158,3 +158,175 @@ def test_resolve_event_missing_value_no_crash():
     engine = _engine()
     assert engine.resolve_event(_depth(None)) == []  # no fire, no exception
     assert len(engine.resolve_event(_depth(5))) == 1  # edge was out-of-band
+
+
+# --- Task 4: LovenseEventSocket -------------------------------------------
+
+import asyncio
+import json
+
+from lovecash.config import LovenseConfig
+from lovecash.lovense.eventsocket import LovenseEventSocket
+
+
+class FakeSocket:
+    """Stand-in for a websockets client connection."""
+
+    def __init__(self) -> None:
+        self.sent: list = []
+        self.incoming: asyncio.Queue = asyncio.Queue()
+        self.closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def feed(self, frame):
+        self.incoming.put_nowait(
+            frame if isinstance(frame, str) else json.dumps(frame)
+        )
+
+    def drop(self):
+        self.incoming.put_nowait(ConnectionError("dropped"))
+
+    async def recv(self):
+        item = await self.incoming.get()
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    async def send(self, payload):
+        self.sent.append(payload)
+
+    async def close(self):
+        self.closed = True
+
+
+def _factory(sockets):
+    calls = []
+
+    def connect(url):
+        calls.append(url)
+        return sockets[min(len(calls), len(sockets)) - 1]
+
+    return connect, calls
+
+
+async def _wait_for(pred, timeout=1.0):
+    async def poll():
+        while not pred():
+            await asyncio.sleep(0.005)
+
+    await asyncio.wait_for(poll(), timeout)
+
+
+def test_socket_url_derivation():
+    assert (
+        LovenseEventSocket.url_for(LovenseConfig(use_https=True))
+        == "wss://127-0-0-1.lovense.club:30010/v1"
+    )
+    assert (
+        LovenseEventSocket.url_for(LovenseConfig(use_https=False))
+        == "ws://127.0.0.1:30010/v1"
+    )
+
+
+async def test_socket_sends_access_first():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    sock = LovenseEventSocket(LovenseConfig(), connect=connect)
+    ws.feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
+    assert json.loads(ws.sent[0]) == {
+        "type": "access",
+        "data": {"appName": "lovecash"},
+    }
+    await gen.aclose()
+
+
+async def test_socket_answers_server_ping_with_pong():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    sock = LovenseEventSocket(LovenseConfig(), connect=connect)
+    ws.feed({"type": "ping"})
+    ws.feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    await asyncio.wait_for(anext(gen), 1)
+    assert "Pong" in ws.sent
+    await gen.aclose()
+
+
+async def test_socket_sends_client_pings():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    sock = LovenseEventSocket(
+        LovenseConfig(), connect=connect, ping_interval=0.01
+    )
+    gen = sock.events()
+    pump = asyncio.create_task(anext(gen))  # recv blocks; ping task runs
+    await _wait_for(
+        lambda: any(
+            isinstance(s, str) and json.loads(s) == {"type": "ping"}
+            for s in ws.sent
+            if s != "Pong"
+        ),
+        timeout=0.5,
+    )
+    pump.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pump
+    await gen.aclose()
+
+
+async def test_socket_reconnects_on_event_closed():
+    ws1, ws2 = FakeSocket(), FakeSocket()
+    connect, calls = _factory([ws1, ws2])
+    delays = []
+
+    async def fake_sleep(s):
+        delays.append(s)
+
+    sock = LovenseEventSocket(
+        LovenseConfig(), connect=connect, backoff_max=0.05, sleep=fake_sleep
+    )
+    ws1.feed({"type": "event-closed"})
+    ws2.feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
+    assert len(calls) == 2
+    await gen.aclose()
+
+
+async def test_socket_backoff_is_capped():
+    sockets = [FakeSocket() for _ in range(5)]
+    connect, calls = _factory(sockets)
+    delays = []
+
+    async def fake_sleep(s):
+        delays.append(s)
+
+    sock = LovenseEventSocket(
+        LovenseConfig(), connect=connect, backoff_max=0.05, sleep=fake_sleep
+    )
+    for ws in sockets[:-1]:
+        ws.drop()
+    sockets[-1].feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
+    assert len(calls) == 5
+    assert delays and max(delays) <= 0.05
+    await gen.aclose()
+
+
+async def test_socket_skips_malformed_frames():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    sock = LovenseEventSocket(LovenseConfig(), connect=connect)
+    ws.feed("not json")
+    ws.feed({"type": "shake", "toyId": "t1"})
+    gen = sock.events()
+    assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
+    await gen.aclose()
