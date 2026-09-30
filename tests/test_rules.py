@@ -42,11 +42,12 @@ def _token_tip(
 ) -> PaymentTrigger:
     from lovecash.models import TokenReceipt
 
-    receipts = (
-        [TokenReceipt(category=category, amount=amount)] if amount else []
-    )
+    receipts = [TokenReceipt(category=category, amount=amount)] if amount else []
     return PaymentTrigger(
-        source_id="t", txid="x", amount_sats=sats, confirmations=conf,
+        source_id="t",
+        txid="x",
+        amount_sats=sats,
+        confirmations=conf,
         tokens=receipts,
     )
 
@@ -90,8 +91,11 @@ def test_sats_and_token_rules_both_fire():
     engine = RulesEngine(
         [
             TipRule(
-                name="sats", min_sats=0, action=Action.VIBRATE,
-                strength=2, duration_s=1,
+                name="sats",
+                min_sats=0,
+                action=Action.VIBRATE,
+                strength=2,
+                duration_s=1,
             )
         ],
         [_token_rule("fan", 100, strength=9)],
@@ -107,13 +111,21 @@ def test_token_rule_category_validation():
 
     with pytest.raises(ValueError):
         TokenRule(
-            name="bad", category="not-hex", min_amount=1,
-            action=Action.VIBRATE, strength=1, duration_s=1,
+            name="bad",
+            category="not-hex",
+            min_amount=1,
+            action=Action.VIBRATE,
+            strength=1,
+            duration_s=1,
         )
     # uppercase normalizes to lowercase
     r = TokenRule(
-        name="ok", category=CAT.upper(), min_amount=1,
-        action=Action.VIBRATE, strength=1, duration_s=1,
+        name="ok",
+        category=CAT.upper(),
+        min_amount=1,
+        action=Action.VIBRATE,
+        strength=1,
+        duration_s=1,
     )
     assert r.category == CAT
     assert r.require_conf is True  # safe default

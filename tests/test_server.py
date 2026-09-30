@@ -387,6 +387,75 @@ def test_settings_post_rejects_invalid_rules(monkeypatch, tmp_path):
         assert resp.status_code == 422
 
 
+def test_settings_roundtrips_advanced_rule_modes(monkeypatch, tmp_path):
+    """The dashboard's mode editor emits these shapes — the server must
+    accept, persist, and reload them byte-identical."""
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client:
+        body = {
+            "rules": [
+                {  # multi-channel function rule
+                    "name": "both",
+                    "min_sats": 1000,
+                    "action": "Vibrate",
+                    "strength": 5,
+                    "duration_s": 10,
+                    "extra_actions": [{"action": "Rotate", "strength": 10}],
+                    "stop_previous": False,
+                    "loop_running_s": 6,
+                    "loop_pause_s": 2,
+                },
+                {  # preset rule: no action/strength needed
+                    "name": "wave",
+                    "min_sats": 5000,
+                    "duration_s": 15,
+                    "preset": "wave",
+                },
+                {  # PatternV2 positions rule
+                    "name": "deep-strokes",
+                    "min_sats": 20000,
+                    "duration_s": 0,
+                    "positions": [{"ts": 0, "pos": 10}, {"ts": 500, "pos": 90}],
+                },
+            ]
+        }
+        resp = client.post("/api/settings", json=body)
+        assert resp.status_code == 200, resp.text
+        from lovecash.config import Settings as S
+
+        rules = S.from_yaml(path).rules
+        assert rules[0].extra_actions[0].action.value == "Rotate"
+        assert rules[0].stop_previous is False
+        assert rules[1].preset == "wave"
+        assert rules[2].positions[1].pos == 90
+        # and the engine turns them into commands without loss
+        orch = client.app.state.orchestrator
+        cmd, _ = orch._engine.resolve_all(
+            PaymentTrigger(source_id="t", txid="x", amount_sats=25000, confirmations=1)
+        )[0]
+        assert cmd.positions is not None and cmd.positions[1].ts == 500
+
+
+def test_settings_rejects_conflicting_modes(monkeypatch, tmp_path):
+    client, path = _settings_client(monkeypatch, tmp_path)
+    with client:
+        resp = client.post(
+            "/api/settings",
+            json={
+                "rules": [
+                    {
+                        "name": "bad",
+                        "min_sats": 1,
+                        "duration_s": 5,
+                        "preset": "pulse",
+                        "pattern": [5],
+                    }
+                ]
+            },
+        )
+        assert resp.status_code == 422
+
+
 def test_settings_requires_local_or_token(monkeypatch, tmp_path):
     client, path = _settings_client(monkeypatch, tmp_path)
     with client:

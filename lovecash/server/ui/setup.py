@@ -165,6 +165,8 @@ your toy reacts</div>
         <select id="manual-action" aria-label="Toy action">
           <option>Vibrate</option><option>Thrusting</option>
           <option>Rotate</option><option>Pump</option><option>Depth</option>
+          <option>Oscillate</option><option>Fingering</option><option>Suction</option>
+          <option>All</option>
         </select>
       </div>
       <div class="msg" id="toy-msg"></div>
@@ -286,7 +288,8 @@ lovecash serve     <span class="dim"># go live</span></div>
         row.appendChild(badge);
       } else {
         var sel = document.createElement("select");
-        ["Vibrate", "Thrusting", "Rotate", "Pump", "Depth"].forEach(function (a) {
+        ["Vibrate", "Thrusting", "Rotate", "Pump", "Depth",
+         "Oscillate", "Fingering", "Suction", "All"].forEach(function (a) {
           var opt = document.createElement("option");
           opt.textContent = a;
           sel.appendChild(opt);

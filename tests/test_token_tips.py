@@ -426,7 +426,9 @@ async def test_listunspent_prefers_fulcrum_token_extension():
         _cfg(),
         client_factory=lambda *a: ExtClient(),
         goal_show=GoalShowConfig(
-            address=POT_ADDR, goal_sats=100_000, deadline=900_000,
+            address=POT_ADDR,
+            goal_sats=100_000,
+            deadline=900_000,
         ),
     )
     src._client = ExtClient()
@@ -455,7 +457,9 @@ async def test_listunspent_fallback_without_extension():
         _cfg(),
         client_factory=lambda *a: OldClient(),
         goal_show=GoalShowConfig(
-            address=POT_ADDR, goal_sats=100_000, deadline=900_000,
+            address=POT_ADDR,
+            goal_sats=100_000,
+            deadline=900_000,
         ),
     )
     src._client = OldClient()

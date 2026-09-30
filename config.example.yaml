@@ -144,6 +144,13 @@ rules:
     action: Thrusting
     strength: 20
     duration_s: 30
+    # Solace Pro only: limit the stroker's travel range (0-100, span >= 20).
+    # stroke_min: 0
+    # stroke_max: 40
+# Actions: Vibrate, Thrusting, Rotate, Pump, Depth, Oscillate, Fingering,
+# Suction, All. Rules can also carry extra_actions, stop_previous,
+# loop_running_s/loop_pause_s, preset, pattern, or positions (PatternV2)
+# — see the comment block above {{ rules }} in lovecash/config.template.yaml.
 
 # --- CashToken tips (CHIP-2022-02) ---
 # Uncomment to accept token tips. When any token_rules exist, the tip QR

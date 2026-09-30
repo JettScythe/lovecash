@@ -31,7 +31,8 @@ GOLDEN_CLAIM = (
     "02a2697600c6a16900cc00c6527994a26900cd00c78800d1537a8800d200cf8851cd0376a9"
     "14537a7e0288ac7e8851cc022202a26951cc7c02e80394a26951d10088c453a169c4539c63"
     "52d100886875516868feffffff0101480200000000001976a914"
-    "1111111111111111111111111111111111111111" "88ac00000000"
+    "1111111111111111111111111111111111111111"
+    "88ac00000000"
 )
 
 
@@ -141,7 +142,9 @@ async def test_auto_claim_needs_performer_pkh():
 # --- genesis verification (performer wallet-signed deploy) ---
 
 
-def _locking(pkh: str = PKH, goal: int = GOAL, deadline: int = DEADLINE, cat: str = CAT_DISPLAY) -> bytes:
+def _locking(
+    pkh: str = PKH, goal: int = GOAL, deadline: int = DEADLINE, cat: str = CAT_DISPLAY
+) -> bytes:
     from lovecash.bch.goalshow import _p2sh32_locking, redeem_script
 
     return _p2sh32_locking(
@@ -149,14 +152,24 @@ def _locking(pkh: str = PKH, goal: int = GOAL, deadline: int = DEADLINE, cat: st
     )
 
 
-def _token_payload(script: bytes, category: str = CAT_DISPLAY, bitfield: int = 0x22, commitment: bytes = b"") -> bytes:
+def _token_payload(
+    script: bytes,
+    category: str = CAT_DISPLAY,
+    bitfield: int = 0x22,
+    commitment: bytes = b"",
+) -> bytes:
     payload = b"\xef" + bytes.fromhex(category)[::-1] + bytes([bitfield])
     if bitfield & 0x40:
         payload += bytes([len(commitment)]) + commitment
     return payload + script
 
 
-def _genesis_hex(token_payloads: list[bytes], input0_category: str = CAT_DISPLAY, seed: int = 5000, vout: int = 0) -> str:
+def _genesis_hex(
+    token_payloads: list[bytes],
+    input0_category: str = CAT_DISPLAY,
+    seed: int = 5000,
+    vout: int = 0,
+) -> str:
     """One-tx genesis+seed: input 0's outpoint txid IS the category."""
     tx = bytearray()
     tx += (2).to_bytes(4, "little")  # version
@@ -210,7 +223,12 @@ def test_verify_genesis_tx_rejects_split_mint():
     # A second token output = the mint-then-seed forgery window.
     with pytest.raises(ValueError, match="exactly one token output"):
         verify_genesis_tx(
-            _genesis_hex([_token_payload(_locking()), _token_payload(b"\x76\xa9\x14" + bytes.fromhex(PKH) + b"\x88\xac")]),
+            _genesis_hex(
+                [
+                    _token_payload(_locking()),
+                    _token_payload(b"\x76\xa9\x14" + bytes.fromhex(PKH) + b"\x88\xac"),
+                ]
+            ),
             bytes.fromhex(PKH),
             GOAL,
             DEADLINE,
@@ -225,7 +243,9 @@ def test_verify_genesis_tx_rejects_committed_nft():
 
     with pytest.raises(ValueError, match="not a bare minting NFT"):
         verify_genesis_tx(
-            _genesis_hex([_token_payload(_locking(), bitfield=0x62, commitment=b"\x01" * 4)]),
+            _genesis_hex(
+                [_token_payload(_locking(), bitfield=0x62, commitment=b"\x01" * 4)]
+            ),
             bytes.fromhex(PKH),
             GOAL,
             DEADLINE,
@@ -343,7 +363,9 @@ def test_deploy_endpoint_verifies_attaches_and_reports(monkeypatch):
 
 def test_deploy_endpoint_rejects_forged_genesis(monkeypatch):
     attached: list = []
-    forged = _genesis_hex([_token_payload(_locking(pkh="22" * 20), category=CAT_DISPLAY)])
+    forged = _genesis_hex(
+        [_token_payload(_locking(pkh="22" * 20), category=CAT_DISPLAY)]
+    )
     # forged tx locks to the "22" covenant but claims the "11" show's params
     with _server_client(monkeypatch, forged, attached) as client:
         resp = client.post("/api/goal_show", json=_deploy_payload())

@@ -1,5 +1,5 @@
 // Mock-network proof for the web pledge builder: the tx the browser builds
-// (via placeholder unlockers for WalletConnect) is VM-valid when a real key
+// (via placeholder unlockers for the wallet-signed inputs) is VM-valid when a real key
 // signs it — the same shape that ran on chipnet in round 2/3.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

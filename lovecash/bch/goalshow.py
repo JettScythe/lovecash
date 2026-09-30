@@ -87,7 +87,9 @@ def redeem_script(
 
 def _p2sh32_locking(redeem: bytes) -> bytes:
     # OP_HASH256 — DOUBLE sha256, matching the 2023 upgrade.
-    return b"\xaa\x20" + hashlib.sha256(hashlib.sha256(redeem).digest()).digest() + b"\x87"
+    return (
+        b"\xaa\x20" + hashlib.sha256(hashlib.sha256(redeem).digest()).digest() + b"\x87"
+    )
 
 
 def verify_genesis_tx(
@@ -157,7 +159,9 @@ def build_claim_tx(
     redeem = redeem_script(performer_pkh, goal_sats, deadline, category_raw)
     locking = _p2sh32_locking(redeem)
     if locking != to_script(pot_address):
-        raise ValueError("constructed covenant does not match the configured pot address")
+        raise ValueError(
+            "constructed covenant does not match the configured pot address"
+        )
     if pot_sats < goal_sats:
         raise ValueError("goal not met")
 

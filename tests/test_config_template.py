@@ -88,8 +88,10 @@ def test_env_var_beats_yaml(tmp_path, monkeypatch):
     cfg.write_text(
         yaml.safe_dump(
             {
-                "bch": {"xpub": "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6"
-                        "ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"},
+                "bch": {
+                    "xpub": "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6"
+                    "ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
+                },
                 "server": {"bind_port": 8080},
             }
         )
