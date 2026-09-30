@@ -573,7 +573,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const batt = document.createElement('span');
       batt.className = 'toy-batt';
-      if (toy.battery != null) batt.textContent = toy.battery + '%';
+      if (toy.battery != null) {
+        batt.textContent = toy.battery + '%' + (toy.battery < 20 ? ' ⚠' : '');
+        if (toy.battery < 20) batt.style.color = 'var(--warn, #ffb020)';
+      }
 
       row.appendChild(dot);
       row.appendChild(name);
