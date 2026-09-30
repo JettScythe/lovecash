@@ -454,3 +454,106 @@ async def test_source_routes_triggers_and_status():
     assert triggers[0].event is ToyEventKind.SHAKE
     assert statuses[0] == ToyStatus(toy_id="t1", battery=84)
     assert all(isinstance(t, ToyEventTrigger) for t in triggers)
+
+
+# --- Task 6: orchestrator wiring ------------------------------------------
+
+from lovecash.config import BchConfig, Settings
+from lovecash.core.orchestrator import Orchestrator
+from lovecash.core.router import ToyRouter
+from lovecash.models import EventRule
+from lovecash.safety import SafetyState
+from lovecash.triggers.events import ToyTarget
+
+# Same dummy xpub as tests/conftest.py (duplicated: tests/ is not a package).
+XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
+
+_DEPTH_RULE = EventRule(
+    name="deep",
+    event=ToyEventKind.DEPTH_CHANGED,
+    duration_s=3,
+    min_value=5,
+    max_value=10,
+    toy="t2",
+)
+
+
+def _orch(events_enabled=False, event_rules=()):
+    settings = Settings(
+        lovense=LovenseConfig(events_enabled=events_enabled),
+        bch=BchConfig(xpub=XPUB),
+        event_rules=list(event_rules),
+    )
+    safety = SafetyState(0)
+    router = ToyRouter(safety, settings.limits)
+    return Orchestrator(settings, router=router)
+
+
+def test_orchestrator_adds_source_only_when_enabled():
+    on = _orch(events_enabled=True)
+    assert "toy-events" in [s.source_id for s in on.sources]
+    off = _orch(events_enabled=False)
+    assert "toy-events" not in [s.source_id for s in off.sources]
+
+
+async def test_handle_event_dispatches_event_rule_command():
+    orch = _orch(event_rules=[_DEPTH_RULE])
+    calls = []
+    orig = orch.router.dispatch
+
+    async def spy(cmd, target, tip_id=None):
+        calls.append((cmd, target, tip_id))
+        await orig(cmd, target, tip_id=tip_id)
+
+    orch.router.dispatch = spy
+    await orch._handle_event(
+        ToyEventTrigger(event=ToyEventKind.DEPTH_CHANGED, toy_id="src", value=7)
+    )
+    assert len(calls) == 1
+    cmd, target, tip_id = calls[0]
+    assert target.toy_ids == ["t2"]
+    assert tip_id is None  # no payment status tracking for event commands
+
+
+async def test_event_rule_target_none_fans_out():
+    rule = _DEPTH_RULE.model_copy(update={"toy": None})
+    orch = _orch(event_rules=[rule])
+    calls = []
+    orig = orch.router.dispatch
+
+    async def spy(cmd, target, tip_id=None):
+        calls.append(target)
+        await orig(cmd, target, tip_id=tip_id)
+
+    orch.router.dispatch = spy
+    await orch._handle_event(
+        ToyEventTrigger(event=ToyEventKind.DEPTH_CHANGED, toy_id="src", value=7)
+    )
+    assert calls == [ToyTarget(toy_ids=[])]  # empty = all toys
+
+
+async def test_toys_status_merges_fieldwise():
+    orch = _orch()
+    seen = []
+
+    async def obs(d):
+        seen.append(dict(d))
+
+    orch.add_toy_status_observer(obs)
+    await orch._on_toy_status(ToyStatus(toy_id="t1", battery=84))
+    await orch._on_toy_status(ToyStatus(toy_id="t1", connected=False))
+    merged = orch.toys_status["t1"]
+    assert merged.battery == 84  # kept from first update
+    assert merged.connected is False
+    assert len(seen) == 2
+    assert seen[-1]["t1"] is merged
+
+
+async def test_payment_path_unchanged(orch_and_ctrl):
+    orch, ctrl = orch_and_ctrl
+    tip = PaymentTrigger(
+        source_id="bch", txid="deadbeef", amount_sats=5000, confirmations=1
+    )
+    await orch._handle_event(tip)
+    assert len(ctrl.commands) == 1
+    assert ctrl.commands[0].strength == 4  # tease rule from conftest

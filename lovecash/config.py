@@ -59,6 +59,10 @@ class LovenseConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 30010
     use_https: bool = True
+    # Game-mode /v1 event socket (Toy Events API): shake/button/depth/
+    # motion triggers + battery/status for the dashboard. Needs game
+    # mode ON in the Lovense app.
+    events_enabled: bool = False
     toys: list[ToyConfig] = []  # multi-toy; empty = legacy single
     toy_id: str | None = None  # legacy single-toy
 
