@@ -330,3 +330,127 @@ async def test_socket_skips_malformed_frames():
     gen = sock.events()
     assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
     await gen.aclose()
+
+
+# --- Task 5: parse_event + ToyEventSource ---------------------------------
+
+from lovecash.triggers.events import ToyStatus
+from lovecash.triggers.toy_events import ToyEventSource, parse_event
+
+
+def test_parse_each_lovense_frame():
+    (shake,) = parse_event({"type": "shake", "toyId": "t1"})
+    assert shake == ToyEventTrigger(event=ToyEventKind.SHAKE, toy_id="t1")
+
+    (press,) = parse_event(
+        {"type": "button-pressed", "toyId": "t1", "data": {"index": 0}}
+    )
+    assert press.event is ToyEventKind.BUTTON_PRESSED
+    assert press.button_index == 0
+
+    (depth,) = parse_event(
+        {"type": "depth-changed", "toyId": "t1", "data": {"value": 12}}
+    )
+    assert depth.event is ToyEventKind.DEPTH_CHANGED
+    assert depth.value == 12
+
+    (batt,) = parse_event(
+        {"type": "battery-changed", "toyId": "t1", "data": {"value": 84}}
+    )
+    assert batt == ToyStatus(toy_id="t1", battery=84)
+
+    (status,) = parse_event(
+        {"type": "toy-status", "toyId": "t1", "data": {"connected": False}}
+    )
+    assert status == ToyStatus(toy_id="t1", connected=False)
+
+    listed = parse_event(
+        {
+            "type": "toy-list",
+            "toyList": [
+                {
+                    "id": "t1",
+                    "name": "Max 2",
+                    "type": "max",
+                    "hVersion": "2",
+                    "fVersion": 300,
+                    "nickname": "toy-nickname",
+                    "battery": 100,
+                    "connected": True,
+                }
+            ],
+        }
+    )
+    assert listed == [
+        ToyStatus(toy_id="t1", name="Max 2", battery=100, connected=True)
+    ]
+
+
+def test_parse_motion_uses_max_speed():
+    (motion,) = parse_event(
+        {
+            "type": "motion-changed",
+            "toyId": "t1",
+            "data": {
+                "motionData": [
+                    {"direction": 1, "speed": s, "position": 50}
+                    for s in (10, 40, 25, 30, 15)
+                ]
+            },
+        }
+    )
+    assert motion.event is ToyEventKind.MOTION_CHANGED
+    assert motion.value == 40
+
+
+def test_parse_motion_empty_burst():
+    assert (
+        parse_event(
+            {"type": "motion-changed", "toyId": "t1", "data": {"motionData": []}}
+        )
+        == []
+    )
+
+
+def test_parse_ignores_non_ruleable():
+    assert parse_event({"type": "button-down", "toyId": "t1", "data": {"index": 0}}) == []
+    assert (
+        parse_event(
+            {
+                "type": "function-strength-changed",
+                "toyId": "t1",
+                "data": {"function": "vibration", "value": 20, "index": 0},
+            }
+        )
+        == []
+    )
+    assert parse_event({"type": "wat"}) == []
+
+
+async def test_source_routes_triggers_and_status():
+    ws = FakeSocket()
+    connect, _ = _factory([ws])
+    triggers, statuses = [], []
+
+    async def emit(ev):
+        triggers.append(ev)
+
+    async def on_status(st):
+        statuses.append(st)
+
+    source = ToyEventSource(
+        LovenseConfig(), on_toy_status=on_status, connect=connect
+    )
+    assert source.source_id == "toy-events"
+    ws.feed({"type": "shake", "toyId": "t1"})
+    ws.feed({"type": "battery-changed", "toyId": "t1", "data": {"value": 84}})
+    runner = asyncio.create_task(source.run(emit))
+    await _wait_for(lambda: len(triggers) == 1 and len(statuses) == 1)
+    await source.close()
+    runner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await runner
+
+    assert triggers[0].event is ToyEventKind.SHAKE
+    assert statuses[0] == ToyStatus(toy_id="t1", battery=84)
+    assert all(isinstance(t, ToyEventTrigger) for t in triggers)
