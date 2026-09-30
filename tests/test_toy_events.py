@@ -1,15 +1,27 @@
 """Toy events pipeline: event models, EventRule matching, socket client,
 source routing, orchestrator wiring (issue #20 piece 1)."""
 
+import asyncio
+import json
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from lovecash.config import BchConfig, LovenseConfig, Settings
+from lovecash.core.orchestrator import Orchestrator
+from lovecash.core.router import ToyRouter
+from lovecash.engine.rules import RulesEngine
+from lovecash.lovense.eventsocket import LovenseEventSocket
 from lovecash.models import Action, EventRule, ToyCommand, ToyEventKind
+from lovecash.safety import SafetyState
 from lovecash.triggers.events import (
     PaymentTrigger,
     ToyEventTrigger,
+    ToyStatus,
+    ToyTarget,
     TriggerEvent,
 )
+from lovecash.triggers.toy_events import ToyEventSource, parse_event
 
 
 def test_trigger_union_discriminates():
@@ -88,8 +100,6 @@ def test_event_rule_matches_and_to_command():
 
 
 def _engine():
-    from lovecash.engine.rules import RulesEngine
-
     return RulesEngine(
         [],
         event_rules=[
@@ -162,12 +172,6 @@ def test_resolve_event_missing_value_no_crash():
 
 # --- Task 4: LovenseEventSocket -------------------------------------------
 
-import asyncio
-import json
-
-from lovecash.config import LovenseConfig
-from lovecash.lovense.eventsocket import LovenseEventSocket
-
 
 class FakeSocket:
     """Stand-in for a websockets client connection."""
@@ -214,12 +218,12 @@ def _factory(sockets):
     return connect, calls
 
 
-async def _wait_for(pred, timeout=1.0):
+async def _wait_for(pred, timeout_s=1.0):
     async def poll():
         while not pred():
             await asyncio.sleep(0.005)
 
-    await asyncio.wait_for(poll(), timeout)
+    await asyncio.wait_for(poll(), timeout_s)
 
 
 def test_socket_url_derivation():
@@ -273,7 +277,7 @@ async def test_socket_sends_client_pings():
             for s in ws.sent
             if s != "Pong"
         ),
-        timeout=0.5,
+        timeout_s=0.5,
     )
     pump.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -333,9 +337,6 @@ async def test_socket_skips_malformed_frames():
 
 
 # --- Task 5: parse_event + ToyEventSource ---------------------------------
-
-from lovecash.triggers.events import ToyStatus
-from lovecash.triggers.toy_events import ToyEventSource, parse_event
 
 
 def test_parse_each_lovense_frame():
@@ -458,13 +459,6 @@ async def test_source_routes_triggers_and_status():
 
 # --- Task 6: orchestrator wiring ------------------------------------------
 
-from lovecash.config import BchConfig, Settings
-from lovecash.core.orchestrator import Orchestrator
-from lovecash.core.router import ToyRouter
-from lovecash.models import EventRule
-from lovecash.safety import SafetyState
-from lovecash.triggers.events import ToyTarget
-
 # Same dummy xpub as tests/conftest.py (duplicated: tests/ is not a package).
 XPUB = "xpub6DF5GApwf8FAAoTTwY6Gk2ZXC1uM6kCqqZBBTEC2Bc6ELxQn6ftHxexXxr8RsQpka7racgE7QbVs4JBdCXn7XL63LEF8tAC6u6KrT5eeseS"
 
@@ -557,3 +551,8 @@ async def test_payment_path_unchanged(orch_and_ctrl):
     await orch._handle_event(tip)
     assert len(ctrl.commands) == 1
     assert ctrl.commands[0].strength == 4  # tease rule from conftest
+
+
+def test_socket_url_override():
+    cfg = LovenseConfig(events_url="ws://192.168.1.5:20010/v1")
+    assert LovenseEventSocket.url_for(cfg) == "ws://192.168.1.5:20010/v1"

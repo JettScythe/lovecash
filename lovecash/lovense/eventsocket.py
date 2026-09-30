@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -23,6 +24,22 @@ import websockets
 from lovecash.config import LovenseConfig
 
 log = logging.getLogger("lovecash.lovense.events")
+
+
+def _default_connect(cfg: LovenseConfig) -> Callable[[str], Any]:
+    if not cfg.use_https:
+        return websockets.connect
+    # Same posture as LovenseController's verify=False (deliberate, see
+    # pyproject per-file ignores): the local Lovense API serves its own
+    # cert over loopback/LAN, and it lapses between app updates.
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    def connect(url: str) -> Any:
+        return websockets.connect(url, ssl=ctx)
+
+    return connect
 
 
 class LovenseEventSocket:
@@ -37,7 +54,7 @@ class LovenseEventSocket:
     ) -> None:
         self._cfg = cfg
         self._app_name = app_name
-        self._connect = connect or websockets.connect
+        self._connect = connect if connect is not None else _default_connect(cfg)
         self._ping_interval = ping_interval
         self._backoff_max = backoff_max
         # Injectable so tests can observe/collapse backoff delays. The
@@ -49,8 +66,11 @@ class LovenseEventSocket:
 
     @staticmethod
     def url_for(cfg: LovenseConfig) -> str:
-        """HTTPS environments use the dash-host lovense.club domain (the
-        app's wildcard-DNS cert); plain HTTP environments hit the IP."""
+        """Explicit events_url wins; otherwise HTTPS environments use the
+        dash-host lovense.club domain (the app's wildcard-DNS cert) and
+        plain HTTP environments hit the IP directly."""
+        if cfg.events_url:
+            return cfg.events_url
         if cfg.use_https:
             return f"wss://{cfg.host.replace('.', '-')}.lovense.club:{cfg.port}/v1"
         return f"ws://{cfg.host}:{cfg.port}/v1"

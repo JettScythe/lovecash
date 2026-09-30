@@ -47,7 +47,7 @@ def parse_event(msg: dict) -> list[ToyEventTrigger | ToyStatus]:
         return [ToyStatus(toy_id=toy_id, connected=data.get("connected"))]
     if mtype == "battery-changed":
         return [ToyStatus(toy_id=toy_id, battery=data.get("value"))]
-    kind = _KIND_MAP.get(mtype)
+    kind = _KIND_MAP.get(mtype or "")
     if kind is None:
         return []
     if kind is ToyEventKind.MOTION_CHANGED:

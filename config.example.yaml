@@ -24,6 +24,12 @@ lovense:
   host: "127.0.0.1" # the Lovense Connect app's address
   port: 30010
   use_https: true
+  # Toy Events API (game-mode socket): lets toy events (shake, button,
+  # depth, motion) fire `event_rules`, and feeds live battery/status to
+  # the dashboard. Needs game mode ON in the Lovense app.
+  events_enabled: false
+  # events_url: "ws://192.168.1.5:20010/v1" # only if game mode shows a
+  # DIFFERENT address (phone app on your LAN, separate game-mode port)
   toy_id: null # null = use the first connected toy
 
   # Multiple toys: list each with its id (from `lovecash doctor`) and
@@ -151,6 +157,19 @@ rules:
 # Suction, All. Rules can also carry extra_actions, stop_previous,
 # loop_running_s/loop_pause_s, preset, pattern, or positions (PatternV2)
 # — see the comment block above {{ rules }} in lovecash/config.template.yaml.
+
+# --- Toy event rules (optional; needs lovense.events_enabled: true) ---
+# Fire commands from the toy itself instead of a tip. `event` is one of:
+# shake, button-pressed, depth-changed, motion-changed. depth/motion
+# rules match a value band (min_value/max_value) and fire when the value
+# ENTERS the band. source_toy filters the emitting toy (omit = any);
+# `toy` targets the toy(s) the command fires on (omit = all toys).
+# event_rules:
+#   - name: shake-to-buzz
+#     event: shake
+#     action: Vibrate
+#     strength: 8
+#     duration_s: 3
 
 # --- CashToken tips (CHIP-2022-02) ---
 # Uncomment to accept token tips. When any token_rules exist, the tip QR

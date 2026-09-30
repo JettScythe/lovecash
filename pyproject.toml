@@ -105,7 +105,8 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
 # Ignore rules that don't make sense to enforce for tests
-"tests/*.py" = ["S101", "S104"]
+# (ASYNC110: polling a predicate in a loop is the standard test idiom)
+"tests/*.py" = ["S101", "S104", "ASYNC110"]
 "lovecash/bch/electrum.py" = ["S101"]
 "lovecash/cli.py" = ["S104", "S501"]
 "lovecash/onboard.py" = ["S501"]  # Lovense Connect local API, self-signed

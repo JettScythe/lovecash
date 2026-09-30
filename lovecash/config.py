@@ -63,6 +63,11 @@ class LovenseConfig(BaseModel):
     # motion triggers + battery/status for the dashboard. Needs game
     # mode ON in the Lovense app.
     events_enabled: bool = False
+    # Full socket URL override (e.g. "ws://192.168.1.5:20010/v1") — set
+    # only when the app shows a DIFFERENT game-mode address (phone app on
+    # the LAN, or a separate game-mode port). Default derives from
+    # host/port/use_https.
+    events_url: str | None = None
     toys: list[ToyConfig] = []  # multi-toy; empty = legacy single
     toy_id: str | None = None  # legacy single-toy
 
