@@ -24,3 +24,4 @@ contracts/package-lock.json
 contracts/.chipnet-wif
 contracts/.chipnet-shows.json
 contracts/web-dist/
+config.chipnet-deploy.yaml
