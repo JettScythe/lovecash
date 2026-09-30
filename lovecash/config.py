@@ -7,7 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from lovecash.models import TipRule, TokenRule
+from lovecash.models import EventRule, TipRule, TokenRule
 
 
 class Playback(StrEnum):
@@ -196,6 +196,7 @@ class Settings(BaseSettings):
     server: ServerConfig = ServerConfig()
     rules: list[TipRule] = []
     token_rules: list[TokenRule] = []  # CashToken tips (CHIP-2022-02)
+    event_rules: list[EventRule] = []  # toy-event triggers (game mode)
     goal_show: GoalShowConfig | None = None  # Phase 3 covenant pot
 
     @classmethod
