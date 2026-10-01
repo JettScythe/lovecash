@@ -651,3 +651,13 @@ async def test_socket_backoff_resets_only_after_real_event():
     assert (await asyncio.wait_for(anext(gen), 1))["type"] == "shake"
     assert delays == [1.0, 2.0, 4.0]
     await gen.aclose()
+
+
+def test_default_connect_ssl_matches_url_scheme():
+    """Bug from live smoke: use_https=True + events_url=ws:// passed an
+    ssl context to a ws:// URI and websockets refused. SSL must follow
+    the URL scheme, not the config flag."""
+    from lovecash.lovense.eventsocket import _connect_kwargs
+
+    assert _connect_kwargs("ws://192.168.88.51:20011/v1") == {}
+    assert "ssl" in _connect_kwargs("wss://127-0-0-1.lovense.club:30010/v1")

@@ -26,18 +26,23 @@ from lovecash.config import LovenseConfig
 log = logging.getLogger("lovecash.lovense.events")
 
 
-def _default_connect(cfg: LovenseConfig) -> Callable[[str], Any]:
-    if not cfg.use_https:
-        return websockets.connect
+def _connect_kwargs(url: str) -> dict:
+    """SSL follows the URL scheme, not cfg.use_https — an events_url
+    override can be ws:// on an https config (game mode on a phone)."""
+    if not url.startswith("wss://"):
+        return {}
     # Same posture as LovenseController's verify=False (deliberate, see
     # pyproject per-file ignores): the local Lovense API serves its own
     # cert over loopback/LAN, and it lapses between app updates.
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    return {"ssl": ctx}
 
+
+def _default_connect(cfg: LovenseConfig) -> Callable[[str], Any]:
     def connect(url: str) -> Any:
-        return websockets.connect(url, ssl=ctx)
+        return websockets.connect(url, **_connect_kwargs(url))
 
     return connect
 
