@@ -503,3 +503,54 @@ def test_goal_visibility_toggle_persists_and_broadcasts(monkeypatch, tmp_path):
         reloaded = S.from_yaml(path)
         assert reloaded.server.alerts.show_goal is False
         assert reloaded.server.alerts.goal_sats == 50_000
+
+
+def test_api_toys_merges_event_status(monkeypatch):
+    """Event-sourced status overrides/extends the GetToys proxy."""
+    import httpx
+
+    from lovecash.triggers.events import ToyStatus
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "data": {"t1": {"name": "Edge", "status": 1, "battery": 55}}
+            }
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return _FakeResp()
+
+        async def post(self, *a, **k):
+            return _FakeResp()
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    with _app_client(monkeypatch, ServerConfig()) as client:
+        orch = client.app.state.orchestrator
+        orch.toys_status["t1"] = ToyStatus(toy_id="t1", battery=90)
+        orch.toys_status["t2"] = ToyStatus(
+            toy_id="t2", name="Gush", battery=77, connected=True
+        )
+        resp = client.get("/api/toys")
+    assert resp.status_code == 200
+    toys = {t["id"]: t for t in resp.json()["toys"]}
+    assert toys["t1"]["battery"] == 90  # event value wins over GetToys
+    assert toys["t2"]["name"] == "Gush"  # event-only toy appended
+    assert toys["t2"]["battery"] == 77
+    assert toys["t2"]["online"] is True
+    assert toys["t2"]["source"] == "events"

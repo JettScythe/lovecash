@@ -22,6 +22,12 @@ lovense:
   host: "127.0.0.1" # the Lovense Connect app's address
   port: 30010
   use_https: true
+  # Toy Events API (game-mode socket): lets toy events (shake, button,
+  # depth, motion) fire `event_rules`, and feeds live battery/status to
+  # the dashboard. Needs game mode ON in the Lovense app.
+  events_enabled: false
+  # events_url: "ws://192.168.1.5:20010/v1" # only if game mode shows a
+  # DIFFERENT address (phone app on your LAN, separate game-mode port)
   {{ toys }}
 
   # Single toy: leave `toys` out and the first connected toy is used.
@@ -132,6 +138,26 @@ server:
 #                               # pos 0-100
 # preset, pattern and positions are mutually exclusive.
 {{ rules }}
+
+# --- Toy event rules (optional; needs lovense.events_enabled: true) ---
+# Fire commands from the toy itself instead of a tip. `event` is one of:
+# shake, button-pressed, depth-changed, motion-changed. depth/motion
+# rules match a value band (min_value/max_value) and fire when the value
+# ENTERS the band. source_toy filters the emitting toy (omit = any);
+# `toy` targets the toy(s) the command fires on (omit = all toys).
+# event_rules:
+#   - name: shake-to-buzz
+#     event: shake
+#     action: Vibrate
+#     strength: 8
+#     duration_s: 3
+#   - name: deep
+#     event: depth-changed
+#     min_value: 10
+#     max_value: 20
+#     action: Vibrate
+#     strength: 14
+#     duration_s: 5
 
 # --- Phase 3: covenant goal show (optional) ---
 # All-or-nothing tip goals enforced by a smart contract; lovecash watches

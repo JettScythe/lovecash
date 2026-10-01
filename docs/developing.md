@@ -15,7 +15,8 @@ uv sync --extra server --group dev
 | lovecash/safety.py | Panic stop and rate-limit gate |
 | lovecash/bch/ | CashAddr decode, BIP21/QR, Electrum client, watcher |
 | lovecash/engine/ | Tip-to-command rule resolution |
-| lovecash/lovense/ | Local Lovense Connect controller |
+| lovecash/lovense/ | Local Lovense Connect controller + game-mode event socket |
+| lovecash/triggers/ | Tip watcher + toy-event source (game mode) |
 | lovecash/core/ | Orchestrator and command player (queue/override) |
 | lovecash/server/ | FastAPI relay, OBS overlay, broadcast hub |
 | lovecash/cli.py | Typer CLI: init, doctor, run, serve, qr |

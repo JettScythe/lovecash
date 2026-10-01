@@ -61,6 +61,9 @@ KNOWN_TOYS: dict[str, ToyProfile] = {
     "edge 2": ToyProfile("Edge 2", Action.VIBRATE, ToyCategory.VIBRATOR),
     "diamo": ToyProfile("Diamo", Action.VIBRATE, ToyCategory.VIBRATOR),
     "gush": ToyProfile("Gush", Action.VIBRATE, ToyCategory.VIBRATOR),
+    # Live-tested 2026-10: a Gush 2 (hVersion "2 Motion") emits shake and
+    # shake-frequency-changed toy events over the game-mode socket —
+    # Lovense's supported-events table doesn't list Gush at all.
     "gush 2": ToyProfile("Gush 2", Action.VIBRATE, ToyCategory.VIBRATOR),
     "calor": ToyProfile("Calor", Action.VIBRATE, ToyCategory.VIBRATOR),
     "dolce": ToyProfile("Dolce", Action.VIBRATE, ToyCategory.VIBRATOR),
