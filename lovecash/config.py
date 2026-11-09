@@ -7,7 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from lovecash.models import TipRule, TokenRule
+from lovecash.models import EventRule, TipRule, TokenRule
 
 
 class Playback(StrEnum):
@@ -59,6 +59,15 @@ class LovenseConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 30010
     use_https: bool = True
+    # Game-mode /v1 event socket (Toy Events API): shake/button/depth/
+    # motion triggers + battery/status for the dashboard. Needs game
+    # mode ON in the Lovense app.
+    events_enabled: bool = False
+    # Full socket URL override (e.g. "ws://192.168.1.5:20010/v1") — set
+    # only when the app shows a DIFFERENT game-mode address (phone app on
+    # the LAN, or a separate game-mode port). Default derives from
+    # host/port/use_https.
+    events_url: str | None = None
     toys: list[ToyConfig] = []  # multi-toy; empty = legacy single
     toy_id: str | None = None  # legacy single-toy
 
@@ -196,6 +205,7 @@ class Settings(BaseSettings):
     server: ServerConfig = ServerConfig()
     rules: list[TipRule] = []
     token_rules: list[TokenRule] = []  # CashToken tips (CHIP-2022-02)
+    event_rules: list[EventRule] = []  # toy-event triggers (game mode)
     goal_show: GoalShowConfig | None = None  # Phase 3 covenant pot
 
     @classmethod

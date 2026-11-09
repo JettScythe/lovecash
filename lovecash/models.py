@@ -7,6 +7,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class ToyEventKind(StrEnum):
+    """Rule-able Lovense Toy Events (game-mode /v1 socket). Status events
+    (toy-list, toy-status, battery-changed) are NOT here — they feed the
+    dashboard, never the rules engine."""
+
+    SHAKE = "shake"
+    BUTTON_PRESSED = "button-pressed"
+    DEPTH_CHANGED = "depth-changed"
+    MOTION_CHANGED = "motion-changed"
+
+
 class Action(StrEnum):
     VIBRATE = "Vibrate"
     THRUSTING = "Thrusting"
@@ -207,6 +218,58 @@ class TipRule(CommandFields):
 
     def matches(self, tip) -> bool:
         return self.min_sats <= tip.amount_sats <= self.max_sats
+
+    def to_command(self) -> ToyCommand:
+        return ToyCommand(**self._command_payload())
+
+
+class EventRule(CommandFields):
+    """Performer-authored mapping from a toy event to a toy command.
+
+    `source_toy` filters the emitter (None = any toy); `toy` selects the
+    target (None = all toys) — an event from one toy can drive another.
+    Value bands apply to depth/motion only; shake/button rules fire per
+    event (edge-triggering lives in RulesEngine.resolve_event).
+    """
+
+    name: str
+    event: ToyEventKind
+    min_value: float = 0
+    max_value: float = 2**63 - 1
+    button_index: int | None = None
+    source_toy: str | None = None
+    toy: str | None = None
+
+    @model_validator(mode="after")
+    def _check_event_shape(self) -> EventRule:
+        if self.max_value < self.min_value:
+            raise ValueError("min_value must be <= max_value")
+        banded = self.event in (
+            ToyEventKind.DEPTH_CHANGED,
+            ToyEventKind.MOTION_CHANGED,
+        )
+        narrowed = self.min_value != 0 or self.max_value != 2**63 - 1
+        if narrowed and not banded:
+            raise ValueError(
+                "a value band only applies to depth-changed/motion-changed "
+                "(shake/button events carry no value — a band would be a "
+                "dead rule that looks configured)"
+            )
+        if self.button_index is not None and self.event != ToyEventKind.BUTTON_PRESSED:
+            raise ValueError("button_index only applies to button-pressed rules")
+        return self
+
+    def matches(self, event) -> bool:
+        """Kind/source/index/band match. A None value passes the band
+        check — band FIRING (incl. edge state and None guards) is the
+        engine's job in resolve_event."""
+        if event.event is not self.event:
+            return False
+        if self.source_toy is not None and event.toy_id != self.source_toy:
+            return False
+        if self.button_index is not None and event.button_index != self.button_index:
+            return False
+        return event.value is None or self.min_value <= event.value <= self.max_value
 
     def to_command(self) -> ToyCommand:
         return ToyCommand(**self._command_payload())

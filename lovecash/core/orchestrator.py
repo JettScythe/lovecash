@@ -8,9 +8,15 @@ from lovecash.core.router import ToyRouter
 from lovecash.engine.rules import RulesEngine
 from lovecash.safety import SafetyState
 from lovecash.triggers.base import TriggerSource
-from lovecash.triggers.events import ToyTarget, TriggerEvent
+from lovecash.triggers.events import (
+    PaymentTrigger,
+    ToyStatus,
+    ToyTarget,
+    TriggerEvent,
+)
 from lovecash.triggers.payment import PaymentSource
 from lovecash.triggers.status import ConnectionState, TipStatus
+from lovecash.triggers.toy_events import ToyEventSource
 
 log = logging.getLogger("lovecash.core")
 
@@ -19,6 +25,7 @@ StatusObserver = Callable[[ConnectionState], Awaitable[None]]
 TipStatusObserver = Callable[[str, TipStatus, dict], Awaitable[None]]
 AddressObserver = Callable[[str, int], Awaitable[None]]
 PotBalanceObserver = Callable[[int, bool], Awaitable[None]]  # (balance, active)
+ToyStatusObserver = Callable[[dict[str, ToyStatus]], Awaitable[None]]
 
 
 class Orchestrator:
@@ -29,6 +36,8 @@ class Orchestrator:
         self._tip_status_observers: list[TipStatusObserver] = []
         self._address_observers: list[AddressObserver] = []
         self._pot_observers: list[PotBalanceObserver] = []
+        self._toy_status_observers: list[ToyStatusObserver] = []
+        self.toys_status: dict[str, ToyStatus] = {}  # event-sourced toy state
         self.pot_balance: int | None = None  # goal-show pot, sats
         self.pot_active: bool | None = None  # goal-show pot UTXO exists
         self.connection_state = ConnectionState.CONNECTED
@@ -41,7 +50,9 @@ class Orchestrator:
         self.router = router
         self.safety = router.safety
 
-        self._engine = RulesEngine(settings.rules, settings.token_rules)
+        self._engine = RulesEngine(
+            settings.rules, settings.token_rules, settings.event_rules
+        )
         self.sources: list[TriggerSource] = []
         self._queue: asyncio.Queue[TriggerEvent] = asyncio.Queue()
 
@@ -55,14 +66,22 @@ class Orchestrator:
             on_pot_balance=self._broadcast_pot_balance,
         )
         self.add_source(self._payment_source)
+        if settings.lovense.events_enabled:
+            self.add_source(
+                ToyEventSource(
+                    settings.lovense, on_toy_status=self._on_toy_status
+                )
+            )
 
-    def set_rules(self, rules, token_rules=None) -> None:
+    def set_rules(self, rules, token_rules=None, event_rules=None) -> None:
         """Hot-swap the tip rules (dashboard settings save)."""
         if token_rules is not None:
             self._payment_source.set_token_rules(token_rules)
-            self._engine = RulesEngine(rules, token_rules)
-        else:
-            self._engine = RulesEngine(rules, self._settings.token_rules)
+        self._engine = RulesEngine(
+            rules,
+            token_rules if token_rules is not None else self._settings.token_rules,
+            event_rules if event_rules is not None else self._settings.event_rules,
+        )
 
     def add_source(self, source: TriggerSource) -> None:
         self.sources.append(source)
@@ -81,6 +100,27 @@ class Orchestrator:
 
     def add_pot_observer(self, obs: PotBalanceObserver) -> None:
         self._pot_observers.append(obs)
+
+    def add_toy_status_observer(self, obs: ToyStatusObserver) -> None:
+        self._toy_status_observers.append(obs)
+
+    async def _on_toy_status(self, st: ToyStatus) -> None:
+        """Merge one status update field-wise (only non-None fields
+        overwrite), then notify observers with the full dict. Status
+        events never touch the rules engine — they can never fire a
+        command."""
+        cur = self.toys_status.get(st.toy_id)
+        if cur is None:
+            self.toys_status[st.toy_id] = st
+        else:
+            self.toys_status[st.toy_id] = cur.model_copy(
+                update={k: v for k, v in st.model_dump().items() if v is not None}
+            )
+        for obs in self._toy_status_observers:
+            try:
+                await obs(self.toys_status)
+            except Exception as exc:
+                log.error("Toy-status observer error: %s", exc)
 
     async def _broadcast_pot_balance(self, balance_sats: int, active: bool) -> None:
         self.pot_balance = balance_sats
@@ -155,9 +195,14 @@ class Orchestrator:
                 await obs(event)
             except Exception as exc:
                 log.error("Observer error: %s", exc)
-        for cmd, toy in self._engine.resolve_all(event):
-            target = ToyTarget(toy_ids=[toy] if toy else [])
-            await self.router.dispatch(cmd, target, tip_id=event.txid)
+        if isinstance(event, PaymentTrigger):
+            for cmd, toy in self._engine.resolve_all(event):
+                target = ToyTarget(toy_ids=[toy] if toy else [])
+                await self.router.dispatch(cmd, target, tip_id=event.txid)
+        else:  # ToyEventTrigger — no payment status tracking
+            for cmd, toy in self._engine.resolve_event(event):
+                target = ToyTarget(toy_ids=[toy] if toy else [])
+                await self.router.dispatch(cmd, target)
 
     async def _consume(self) -> None:
         while True:

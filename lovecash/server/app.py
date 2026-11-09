@@ -283,11 +283,13 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
         """Proxy the local Lovense Connect /GetToys for the dashboard."""
         cfg = settings.lovense
         scheme = "https" if cfg.use_https else "http"
+        reachable = False
         try:
             # Lovense Connect's local API uses a self-signed cert.
             async with httpx.AsyncClient(verify=False, timeout=4) as hc:  # noqa: S501
                 resp = await hc.get(f"{scheme}://{cfg.host}:{cfg.port}/GetToys")
             data = resp.json().get("data", {}) or {}
+            reachable = True
             toys = [
                 {
                     "id": tid,
@@ -297,9 +299,31 @@ def create_app(settings: Settings, config_path: str | None = None) -> FastAPI:
                 }
                 for tid, t in data.items()
             ]
-            return {"ok": True, "toys": toys}
         except Exception:
-            return {"ok": False, "toys": []}
+            toys = []
+        # Event-sourced status (game-mode socket) wins over the GetToys
+        # snapshot — it updates in real time between polls. Toys only the
+        # event stream knows about are appended.
+        by_id = {t["id"]: t for t in toys}
+        for tid, st in orchestrator.toys_status.items():
+            row = by_id.get(tid)
+            if row is None:
+                row = {
+                    "id": tid,
+                    "name": st.name or "Unknown",
+                    "online": True,
+                    "battery": None,
+                    "source": "events",
+                }
+                toys.append(row)
+                by_id[tid] = row
+            if st.name:
+                row["name"] = st.name
+            if st.battery is not None:
+                row["battery"] = st.battery
+            if st.connected is not None:
+                row["online"] = st.connected
+        return {"ok": reachable or bool(toys), "toys": toys}
 
     # --- OBS-facing endpoints (no auth: read-only, no funds touched) ---
 
