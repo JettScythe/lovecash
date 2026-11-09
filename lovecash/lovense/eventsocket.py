@@ -29,7 +29,7 @@ log = logging.getLogger("lovecash.lovense.events")
 def _connect_kwargs(url: str) -> dict:
     """SSL follows the URL scheme, not cfg.use_https — an events_url
     override can be ws:// on an https config (game mode on a phone)."""
-    if not url.startswith("wss://"):
+    if not url.lower().startswith("wss://"):
         return {}
     # Same posture as LovenseController's verify=False (deliberate, see
     # pyproject per-file ignores): the local Lovense API serves its own
@@ -40,11 +40,8 @@ def _connect_kwargs(url: str) -> dict:
     return {"ssl": ctx}
 
 
-def _default_connect(cfg: LovenseConfig) -> Callable[[str], Any]:
-    def connect(url: str) -> Any:
-        return websockets.connect(url, **_connect_kwargs(url))
-
-    return connect
+def _default_connect(url: str) -> Any:
+    return websockets.connect(url, **_connect_kwargs(url))
 
 
 class LovenseEventSocket:
@@ -59,7 +56,7 @@ class LovenseEventSocket:
     ) -> None:
         self._cfg = cfg
         self._app_name = app_name
-        self._connect = connect if connect is not None else _default_connect(cfg)
+        self._connect = connect if connect is not None else _default_connect
         self._ping_interval = ping_interval
         self._backoff_max = backoff_max
         # Injectable so tests can observe/collapse backoff delays. The

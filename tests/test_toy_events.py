@@ -661,3 +661,4 @@ def test_default_connect_ssl_matches_url_scheme():
 
     assert _connect_kwargs("ws://192.168.88.51:20011/v1") == {}
     assert "ssl" in _connect_kwargs("wss://127-0-0-1.lovense.club:30010/v1")
+    assert "ssl" in _connect_kwargs("WSS://127-0-0-1.lovense.club:30010/v1")
